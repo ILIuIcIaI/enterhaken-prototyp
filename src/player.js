@@ -96,7 +96,10 @@ export class Player {
       gScale = this.wallrunMove(dt, ctl, hooks);
     } else {
       if (attached > 0) {
-        _a.addScaledVector(_wish, P.swingAccel);
+        // nur quer zum Seil wirken lassen: pumpt den Schwung, ohne gegen das Seil zu arbeiten
+        this.ropeDir(hooks, _d);
+        _t.copy(_wish).addScaledVector(_d, -_wish.dot(_d));
+        _a.addScaledVector(_t, P.swingAccel);
       } else if (v.dot(_wish) < P.airMaxSpeed) {
         _a.addScaledVector(_wish, P.airAccel);
       }
@@ -129,35 +132,63 @@ export class Player {
     }
 
     v.addScaledVector(_a, dt);
+
+    // Elastisches Seil: Feder + Dämpfer, nur bei Dehnung über die Ruhelänge (Seile drücken nicht).
+    // Das federt das Straffen ab, statt die radiale Geschwindigkeit schlagartig zu vernichten.
+    for (const h of hooks) {
+      if (h.state !== 'attached') continue;
+      _d.subVectors(this.pos, h.anchor);
+      const dist = _d.length();
+      if (this.reeling) h.length = Math.max(H.minLength, Math.min(h.length, dist));
+      else if (H.autoRetract && dist < h.length) h.length = Math.max(H.minLength, dist, h.length - H.retractSpeed * dt);
+      const stretch = dist - h.length;
+      if (stretch > 0 && dist > 1e-4) {
+        _d.divideScalar(dist);
+        const vr = v.dot(_d);
+        const T = Math.max(0, H.stiffness * stretch + H.damping * vr);
+        _a.copy(_d).multiplyScalar(-T * dt);
+        v.add(_a);
+        if (!h.taut && vr > 12) this.events.push({ type: 'snap', strength: vr });
+        h.taut = true;
+        h.tension = T;
+      } else {
+        h.taut = false;
+        h.tension = 0;
+      }
+    }
+
     if (v.lengthSq() > PH.maxSpeed * PH.maxSpeed) v.setLength(PH.maxSpeed);
     this.vPre.copy(v);
 
-    // Vorhersage + Seil-Bedingungen (zwei Iterationen, falls beide Haken hängen)
+    // Vorhersage + harte Grenze der Seildehnung (zwei Iterationen, falls beide Haken hängen)
     _target.copy(this.pos).addScaledVector(v, dt);
     for (let it = 0; it < (attached > 1 ? 2 : 1); it++) {
       for (const h of hooks) {
         if (h.state !== 'attached') continue;
         _d.subVectors(_target, h.anchor);
         const dist = _d.length();
-        if (it === 0 && (this.reeling || H.autoRetract)) h.length = Math.max(H.minLength, Math.min(h.length, dist));
-        if (dist > h.length) {
-          if (it === 0) {
-            const radial = (dist - h.length) / dt;
-            if (!h.taut && radial > 10) this.events.push({ type: 'snap', strength: radial });
-            h.taut = true;
-            h.tension = radial;
-          }
-          _target.copy(h.anchor).addScaledVector(_d, h.length / dist);
-        } else if (it === 0) {
-          h.taut = false;
-          h.tension = 0;
-        }
+        const maxLen = h.length + H.maxStretch;
+        if (dist > maxLen) _target.copy(h.anchor).addScaledVector(_d, maxLen / dist);
       }
     }
 
     this.sweep(_target);
     v.subVectors(this.pos, this.prevPos).divideScalar(dt);
     this.postStep(dt, ctl);
+  }
+
+  // mittlere Richtung vom Spieler zu den Ankern (normalisiert)
+  ropeDir(hooks, out) {
+    out.set(0, 0, 0);
+    for (const h of hooks) if (h.state === 'attached') out.add(_n.subVectors(h.anchor, this.pos).normalize());
+    return out.lengthSq() > 1e-8 ? out.normalize() : out.set(0, 1, 0);
+  }
+
+  // Kleiner Schwung in Flugrichtung beim Lösen eines gespannten Seils – macht Ketten von Schwüngen flüssiger.
+  releaseBoost() {
+    const sp = this.vel.length();
+    if (this.state !== 'air' || sp < 10) return;
+    this.vel.multiplyScalar((sp + CONFIG.hook.releaseBoost) / sp);
   }
 
   jump() {

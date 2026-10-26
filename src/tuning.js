@@ -20,7 +20,12 @@ export function createTuning(game) {
   hk.add(CONFIG.hook, 'reelAccel', 0, 120, 1).name('Winde: Zugkraft');
   hk.add(CONFIG.hook, 'reelMaxSpeed', 5, 120, 1).name('Winde: max. Geschw.');
   hk.add(CONFIG.hook, 'dualFactor', 0.3, 1.5, 0.05).name('Faktor 2 Haken');
+  hk.add(CONFIG.hook, 'stiffness', 20, 600, 5).name('Seil-Steifigkeit');
+  hk.add(CONFIG.hook, 'damping', 0, 60, 1).name('Seil-Dämpfung');
+  hk.add(CONFIG.hook, 'maxStretch', 0, 6, 0.1).name('Max. Dehnung (m)');
   hk.add(CONFIG.hook, 'autoRetract').name('Seil auto. straffen');
+  hk.add(CONFIG.hook, 'retractSpeed', 0, 40, 0.5).name('Einholgeschw.');
+  hk.add(CONFIG.hook, 'releaseBoost', 0, 15, 0.5).name('Schwung beim Lösen');
   hk.add(CONFIG.hook, 'wrap').name('Seil um Kanten');
 
   const gs = gui.addFolder('Gas');
@@ -47,6 +52,12 @@ export function createTuning(game) {
   cam.add(CONFIG.camera, 'distance', 1.5, 15, 0.1).name('Abstand');
   cam.add(CONFIG.camera, 'sensitivity', 0.0005, 0.006, 0.0001).name('Mausempfindl.');
   cam.add(CONFIG.camera, 'invertY').name('Y invertieren');
+
+  const gr = gui.addFolder('Grafik');
+  gr.add(CONFIG.graphics, 'ink', 0, 1.5, 0.05).name('Tuschelinien');
+  gr.add(CONFIG.graphics, 'bloom', 0, 2, 0.05).name('Bloom');
+  gr.add(CONFIG.graphics, 'exposure', 0.4, 2, 0.05).name('Belichtung');
+  gr.add(CONFIG.graphics, 'saturation', 0.5, 1.8, 0.02).name('Sättigung');
 
   const w = gui.addFolder('Welt');
   w.add(CONFIG.world, 'timeScale', 0.05, 1.5, 0.05).name('Zeitfaktor');

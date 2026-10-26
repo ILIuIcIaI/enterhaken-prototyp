@@ -7,15 +7,15 @@ export const CONFIG = {
     maxSpeed: 140,
   },
   player: {
-    halfWidth: 0.35,
-    halfHeight: 0.9,
+    halfWidth: 0.33,
+    halfHeight: 0.82,
     runSpeed: 12,
     groundAccel: 70,
     slideDecel: 20,       // Abbremsen, wenn man schneller als Laufgeschwindigkeit landet
     jumpSpeed: 9,
     airAccel: 8,
     airMaxSpeed: 14,
-    swingAccel: 10,       // WASD-Einfluss, während ein Haken hängt (Schwung "pumpen")
+    swingAccel: 13,       // WASD-Einfluss quer zum Seil, während ein Haken hängt (Schwung "pumpen")
   },
   hook: {
     range: 140,
@@ -24,7 +24,12 @@ export const CONFIG = {
     reelMaxSpeed: 55,
     dualFactor: 0.7,      // Zugkraft pro Haken, wenn beide hängen
     minLength: 2,
-    autoRetract: false,   // true: Winde holt lockeres Seil automatisch ein
+    stiffness: 140,       // Seil dehnt sich leicht (Feder) statt hart zu rucken
+    damping: 14,
+    maxStretch: 1.5,      // harte Grenze der Dehnung in Metern
+    autoRetract: true,    // Winde holt lockeres Seil sanft ein
+    retractSpeed: 10,
+    releaseBoost: 3,      // kleiner Schwung in Flugrichtung beim Loslassen
     wrap: true,           // Seil wickelt sich um Gebäudekanten
   },
   gas: {
@@ -66,6 +71,12 @@ export const CONFIG = {
   world: {
     seed: 1337,
     timeScale: 1,
+  },
+  graphics: {
+    ink: 1,               // Stärke der Tuschelinien
+    bloom: 0.45,
+    exposure: 1.05,
+    saturation: 1.12,
   },
 };
 

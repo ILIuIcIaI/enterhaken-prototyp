@@ -1,5 +1,5 @@
 # Laufzeit-Ausgabe (Screenshots aus dem Spiel, Taste P)
-screenshots/
+/screenshots/
 
 # Lokale Werkzeug-Konfiguration
 .claude/

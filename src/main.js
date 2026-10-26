@@ -9,8 +9,9 @@ import { CameraRig } from './camera.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
 import { AudioFX } from './audio.js';
-import { Particles, SpeedLines, AimMarker } from './effects.js';
+import { Particles, SpeedLines, AimMarker, Embers } from './effects.js';
 import { createTuning } from './tuning.js';
+import { Post } from './post.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -26,20 +27,24 @@ class Game {
     this.debug = new URLSearchParams(location.search).has('debug');
 
     const renderer = (this.renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' }));
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    this.pixelRatio = Math.min(window.devicePixelRatio, 1.25);
+    renderer.setPixelRatio(this.pixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.0;
+    renderer.toneMappingExposure = CONFIG.graphics.exposure;
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     document.getElementById('app').appendChild(renderer.domElement);
 
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.1, 4000);
+    this.camera = new THREE.PerspectiveCamera(CONFIG.camera.fov, window.innerWidth / window.innerHeight, 0.25, 4000);
 
     this.city = new City(CONFIG.world.seed);
-    this.scene.add(this.city.mesh);
+    this.scene.add(this.city.mesh, this.city.decor);
     this.world = createWorld(renderer, this.scene, this.city.layout);
+    this.post = new Post(renderer, this.scene, this.camera);
+    this.embers = new Embers(this.scene);
+    this.charEvents = [];
 
     this.player = new Player(this.city);
     this.hooks = [new Hook(-1, this.scene), new Hook(1, this.scene)];
@@ -80,6 +85,7 @@ class Game {
     this.rig.yaw = -Math.PI / 2;
     this.rig.pitch = -0.12;
     this.rig.updateBasis();
+    this.rig.snap();
     this.renderPos.copy(this.spawnPoint);
   }
 
@@ -134,6 +140,7 @@ class Game {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     for (const hk of this.hooks) hk.setResolution(w, h);
+    this.post.setSize(w, h, this.pixelRatio);
     this.speedLines.resize();
   }
 
@@ -213,8 +220,12 @@ class Game {
     if (!this.paused) {
       this.rig.look(input.mouse.dx, input.mouse.dy);
       for (const [btn, idx] of [[0, 0], [2, 1]]) {
-        if (input.mouse.pressed[btn]) this.fireHook(this.hooks[idx]);
-        if (input.mouse.released[btn]) this.hooks[idx].release();
+        const hook = this.hooks[idx];
+        if (input.mouse.pressed[btn]) this.fireHook(hook);
+        if (input.mouse.released[btn]) {
+          if (hook.state === 'attached' && hook.taut && !this.hooks[1 - idx].taut) player.releaseBoost();
+          hook.release();
+        }
       }
 
       const ctl = this.ctl;
@@ -240,20 +251,33 @@ class Game {
       this.emitGas(dt);
     }
 
-    this.rig.update(dt, this.renderPos, player);
+    const swinging = this.hooks.some((h) => h.state === 'attached');
+    this.rig.update(dt, this.renderPos, player, { moving: !this.paused, swinging: swinging && player.state === 'air' });
     this.updateAim();
-    this.updateCharacter(dt);
+    this.updateCharacter(this.paused ? 0 : dt);
     for (const h of this.hooks) h.draw(dt, this.hipPosition(h.side, _hip).sub(player.pos).add(this.renderPos), this.time);
-    this.particles.setScale(this.renderer.domElement.height, this.camera.fov);
+    const pxScale = this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
+    this.particles.material.uniforms.uScale.value = pxScale;
     this.particles.update(this.paused ? 0 : dt);
+    this.embers.update(this.time, this.camera, pxScale);
     this.aimMarker.update(this.aim, this.camera, this.time);
-    this.world.update(this.renderPos, this.camera);
+    this.world.update(this.renderPos, this.camera, this.time);
+    this.city.updateDecor(this.time);
     this.hud.update(this);
     this.updateSpeedLines(dt);
     this.audio.update(this.paused ? 0 : player.vel.length(), !this.paused && player.boosting, !this.paused && player.reeling);
 
-    this.renderer.render(this.scene, this.camera);
+    this.applyGraphics();
+    this.post.render();
     input.endFrame();
+  }
+
+  applyGraphics() {
+    const G = CONFIG.graphics;
+    this.renderer.toneMappingExposure = G.exposure;
+    this.post.bloom.strength = G.bloom;
+    this.post.inkMat.uniforms.uInk.value = G.ink;
+    this.post.inkMat.uniforms.uSaturation.value = G.saturation;
   }
 
   handleEvents() {
@@ -273,6 +297,7 @@ class Game {
         this.rig.addShake(Math.min(0.4, e.strength / 120));
       }
     }
+    this.charEvents.push(...p.events);
     p.events.length = 0;
     for (const h of this.hooks) {
       if (h.justAttached) {
@@ -291,12 +316,12 @@ class Game {
   }
 
   dustRing(p, strength) {
-    const n = Math.min(30, Math.floor(strength));
+    const n = Math.min(24, Math.floor(strength));
     _w.set(p.x, p.y - CONFIG.player.halfHeight + 0.1, p.z);
     for (let i = 0; i < n; i++) {
       const a = (i / n) * Math.PI * 2;
-      _v.set(Math.cos(a), 0.3, Math.sin(a)).multiplyScalar(3 + Math.random() * strength * 0.15);
-      this.particles.emit(_w, _v, { life: 0.9, size: 0.8, alpha: 0.35, color: [0.7, 0.66, 0.6], drag: 3, grow: 2.5 });
+      _v.set(Math.cos(a), 0.2, Math.sin(a)).multiplyScalar(4 + Math.random() * strength * 0.2);
+      this.particles.emit(_w, _v, { life: 0.7, size: 0.45, alpha: 0.18, color: [0.55, 0.45, 0.62], drag: 3, grow: 2.5 });
     }
   }
 
@@ -308,19 +333,19 @@ class Game {
       const n = Math.max(1, Math.round(rate * dt));
       for (let i = 0; i < n; i++) {
         const s = Math.random() < 0.5 ? -1 : 1;
-        _w.set(0.27 * s, -0.25, 0.45).applyQuaternion(q).add(this.renderPos);
+        _w.set(0.13 * s, -0.06, 0.3).applyQuaternion(q).add(this.renderPos);
         if (p.boosting) _v.copy(this.rig.forward).multiplyScalar(-14);
         else _v.set(0, 0, 4).applyQuaternion(q);
         _v.addScaledVector(p.vel, 0.6).add(_u.set(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).multiplyScalar(3));
         this.particles.emit(_w, _v, { life: p.boosting ? 0.7 : 0.4, size: p.boosting ? 0.45 : 0.25, alpha: 0.5, drag: 3, grow: 3 });
       }
     }
-    if (p.state === 'wallrun' && Math.random() < dt * 40) {
+    if (p.state === 'wallrun' && Math.random() < dt * 30) {
       const n = p.wall.n;
       _w.copy(this.renderPos).addScaledVector(n, -0.3);
-      _w.y -= 0.8;
+      _w.y -= 0.75;
       _v.copy(n).multiplyScalar(2).add(_u.set(Math.random() - 0.5, Math.random(), Math.random() - 0.5).multiplyScalar(2));
-      this.particles.emit(_w, _v, { life: 0.6, size: 0.35, alpha: 0.3, color: [0.75, 0.72, 0.68], drag: 2, grow: 2 });
+      this.particles.emit(_w, _v, { life: 0.5, size: 0.2, alpha: 0.18, color: [0.8, 0.6, 0.75], drag: 2, grow: 2 });
     }
   }
 
@@ -329,11 +354,11 @@ class Game {
     c.root.position.copy(this.renderPos);
     c.root.visible = this.rig.dist > 0.9;
 
-    let mode = p.state;
     let rate = 10;
     const v = p.vel;
     const hs = Math.hypot(v.x, v.z);
     let taut = 0;
+    const attached = this.hooks.some((h) => h.state === 'attached');
     _w.set(0, 0, 0);
     for (const h of this.hooks) {
       if (h.state === 'attached' && h.taut) {
@@ -351,7 +376,6 @@ class Game {
       if (Math.abs(_f.dot(_u)) > 0.95) _f.copy(n).negate();
       rate = 14;
     } else if (p.state !== 'ground' && taut > 0) {
-      mode = 'swing';
       _u.copy(_w.divideScalar(taut)).sub(p.pos).normalize();
       _f.copy(v).addScaledVector(_u, -v.dot(_u));
       if (_f.lengthSq() < 1) _f.copy(this.rig.forward).addScaledVector(_u, -this.rig.forward.dot(_u));
@@ -365,6 +389,12 @@ class Game {
         if (_f.lengthSq() < 1e-4) _f.set(-Math.sin(this.rig.yaw), 0, -Math.cos(this.rig.yaw));
         _f.normalize();
       }
+    } else if (p.boosting && !attached) {
+      // Gas-Schub: Körper legt sich flach in Blickrichtung
+      _f.set(this.rig.forward.x, 0, this.rig.forward.z).normalize();
+      _u.copy(UP).multiplyScalar(0.55).addScaledVector(_f, 0.85).normalize();
+      _f.addScaledVector(_u, -_f.dot(_u)).normalize();
+      rate = 6;
     } else {
       if (hs > 1.5) _f.set(v.x / hs, 0, v.z / hs);
       else _f.set(this.rig.forward.x, 0, this.rig.forward.z).normalize();
@@ -372,8 +402,19 @@ class Game {
       _u.copy(UP).addScaledVector(_f, lean).normalize();
       _f.addScaledVector(_u, -_f.dot(_u)).normalize();
     }
-    c.orient(_u, _f, dt, rate);
-    c.animate(dt, mode, p.state === 'wallrun' ? Math.abs(v.dot(p.wall.t)) + Math.abs(v.y) : p.state === 'ground' ? hs : v.length(), p.boosting);
+    if (dt > 0) c.orient(_u, _f, dt, rate);
+    c.update(dt, {
+      state: p.state,
+      speed: p.state === 'wallrun' ? Math.hypot(v.dot(p.wall.t), v.y) : v.length(),
+      hspeed: hs,
+      vy: v.y,
+      swinging: attached && p.state === 'air',
+      reeling: p.reeling,
+      boosting: p.boosting,
+      events: this.charEvents,
+      lookDir: this.rig.forward,
+    });
+    this.charEvents.length = 0;
   }
 
   updateSpeedLines(dt) {
@@ -394,8 +435,8 @@ class Game {
   // ------------------------------------------------------------------ Screenshot (Taste P)
   // Rendert Bild + Speedlines + Kern-HUD in eine PNG. Mit serve.ps1 landet sie in /screenshots,
   // sonst wird sie heruntergeladen.
-  async screenshot(name) {
-    this.renderer.render(this.scene, this.camera);
+  async screenshot(name, hud = true) {
+    this.post.render();
     const src = this.renderer.domElement;
     const out = document.createElement('canvas');
     out.width = src.width;
@@ -404,7 +445,7 @@ class Game {
     ctx.drawImage(src, 0, 0);
     const k = out.width / window.innerWidth;
     ctx.drawImage(document.getElementById('speedlines'), 0, 0, out.width, out.height);
-    this.drawHudSnapshot(ctx, out.width, out.height, k);
+    if (hud) this.drawHudSnapshot(ctx, out.width, out.height, k);
     const blob = await new Promise((r) => out.toBlob(r, 'image/png'));
     const file = `${name || 'shot-' + new Date().toISOString().replace(/[:.]/g, '-')}.png`;
     try {
@@ -422,7 +463,7 @@ class Game {
 
   drawHudSnapshot(ctx, w, h, k) {
     const cx = w / 2, cy = h / 2;
-    const col = this.aim.hit ? (this.aim.inRange ? '#5dffc0' : '#ff6a4d') : 'rgba(255,255,255,0.75)';
+    const col = this.aim.hit ? (this.aim.inRange ? '#c8ff3c' : '#ff3b5c') : 'rgba(255,255,255,0.75)';
     ctx.strokeStyle = col;
     ctx.fillStyle = col;
     ctx.lineWidth = 2 * k;
@@ -434,7 +475,7 @@ class Game {
     ctx.fill();
     this.hooks.forEach((hk, i) => {
       const s = i === 0 ? -1 : 1;
-      ctx.strokeStyle = hk.state === 'attached' ? '#5dffc0' : hk.state === 'flying' ? '#ffd166' : 'rgba(255,255,255,0.45)';
+      ctx.strokeStyle = hk.state === 'attached' ? '#c8ff3c' : hk.state === 'flying' ? '#ffd400' : 'rgba(255,255,255,0.45)';
       ctx.lineWidth = 3 * k;
       ctx.beginPath();
       ctx.arc(cx, cy, 22 * k, s < 0 ? Math.PI * 0.75 : -Math.PI * 0.25, s < 0 ? Math.PI * 1.25 : Math.PI * 0.25);
@@ -451,7 +492,7 @@ class Game {
     const gw = 200 * k, gx = w - gw - 28 * k, gy = h - 36 * k;
     ctx.fillStyle = 'rgba(0,0,0,0.4)';
     ctx.fillRect(gx, gy, gw, 8 * k);
-    ctx.fillStyle = '#e8f4ff';
+    ctx.fillStyle = '#ffd400';
     ctx.fillRect(gx, gy, gw * (this.player.gas / CONFIG.gas.max), 8 * k);
     ctx.font = `600 ${12 * k}px system-ui, sans-serif`;
     ctx.fillText('GAS', gx, gy - 8 * k);

@@ -90,6 +90,58 @@ export class Particles {
   }
 }
 
+// Glühende Funken/Asche, die um die Kamera herum aufsteigen (komplett auf der GPU animiert).
+export class Embers {
+  constructor(scene, count = 500) {
+    const seeds = new Float32Array(count * 3);
+    for (let i = 0; i < seeds.length; i++) seeds[i] = Math.random();
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3));
+    geo.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 3));
+    this.material = new THREE.ShaderMaterial({
+      uniforms: { uTime: { value: 0 }, uCam: { value: new THREE.Vector3() }, uScale: { value: 600 } },
+      transparent: true,
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+      vertexShader: /* glsl */ `
+        attribute vec3 aSeed;
+        uniform float uTime; uniform vec3 uCam; uniform float uScale;
+        varying float vAlpha;
+        void main() {
+          vec3 box = vec3(160.0, 90.0, 160.0);
+          vec3 p = aSeed * box;
+          p.y += uTime * (0.8 + aSeed.x * 1.6);
+          p.x += uTime * 2.0 + sin(uTime * 0.4 + aSeed.y * 30.0) * 4.0;
+          p.z += cos(uTime * 0.35 + aSeed.z * 25.0) * 4.0;
+          p = mod(p - uCam + box * 0.5, box) - box * 0.5 + uCam;
+          vec4 mv = modelViewMatrix * vec4(p, 1.0);
+          float d = -mv.z;
+          gl_PointSize = (0.12 + aSeed.y * 0.22) * uScale / max(d, 0.5);
+          vAlpha = (0.55 + 0.45 * sin(uTime * (3.0 + aSeed.z * 6.0) + aSeed.x * 40.0)) * (1.0 - smoothstep(35.0, 80.0, d)) * smoothstep(1.0, 4.0, d);
+          gl_Position = projectionMatrix * mv;
+        }`,
+      fragmentShader: /* glsl */ `
+        varying float vAlpha;
+        void main() {
+          float r = length(gl_PointCoord - 0.5);
+          float a = smoothstep(0.5, 0.0, r) * vAlpha;
+          if (a < 0.01) discard;
+          gl_FragColor = vec4(vec3(2.6, 1.1, 0.45) * a, a);
+        }`,
+    });
+    this.points = new THREE.Points(geo, this.material);
+    this.points.frustumCulled = false;
+    scene.add(this.points);
+  }
+
+  update(time, camera, scale) {
+    const u = this.material.uniforms;
+    u.uTime.value = time;
+    u.uCam.value.copy(camera.position);
+    u.uScale.value = scale;
+  }
+}
+
 // Anime-artige Geschwindigkeitslinien als 2D-Overlay, zentriert auf die Flugrichtung.
 export class SpeedLines {
   constructor(canvas) {
@@ -135,7 +187,7 @@ export class SpeedLines {
 // Markierung an der Stelle, an der ein Haken greifen würde.
 export class AimMarker {
   constructor(scene) {
-    const mat = new THREE.MeshBasicMaterial({ color: '#5dffc0', transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide });
+    const mat = new THREE.MeshBasicMaterial({ color: '#c8ff3c', transparent: true, opacity: 0.9, depthTest: false, side: THREE.DoubleSide });
     this.ring = new THREE.Mesh(new THREE.RingGeometry(0.75, 1, 32), mat);
     this.dot = new THREE.Mesh(new THREE.CircleGeometry(0.22, 16), mat);
     this.group = new THREE.Group();

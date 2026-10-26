@@ -21,7 +21,15 @@ export class CameraRig {
     this.shoulderSide = 1;
     this.shake = 0;
     this.fov = CONFIG.camera.fov;
+    this.follow = new THREE.Vector3();
+    this.followInit = false;
+    this.prevVel = new THREE.Vector3();
+    this.latAcc = 0;
     this.updateBasis();
+  }
+
+  snap() {
+    this.followInit = false;
   }
 
   look(dx, dy) {
@@ -42,9 +50,27 @@ export class CameraRig {
     this.shake = Math.min(1, this.shake + amount);
   }
 
-  update(dt, pos, player) {
+  update(dt, pos, player, { moving = true, swinging = false } = {}) {
     const C = CONFIG.camera;
     const speed = player.vel.length();
+
+    // Weiche Verfolgung mit Vorhersage: bei konstantem Tempo kein Nachziehen,
+    // Rucke (Seil strafft sich, Aufprall, Kollision) werden aber geglättet.
+    if (!this.followInit || this.follow.distanceToSquared(pos) > 100) {
+      this.follow.copy(pos);
+      this.followInit = true;
+    } else {
+      if (moving) this.follow.addScaledVector(player.vel, dt);
+      this.follow.lerp(pos, 1 - Math.exp(-14 * dt));
+    }
+    pos = this.follow;
+
+    // Querbeschleunigung (geglättet) für leichtes Kurvenneigen beim Schwingen
+    if (moving && dt > 0) {
+      const lat = _side.subVectors(player.vel, this.prevVel).dot(this.right) / dt;
+      this.latAcc += (Math.max(-60, Math.min(60, lat)) - this.latAcc) * (1 - Math.exp(-4 * dt));
+      this.prevVel.copy(player.vel);
+    }
     const sf = Math.min(1, Math.max(0, (speed - 12) / 50));
 
     const targetFov = C.fov + C.fovSpeedBoost * sf;
@@ -80,7 +106,9 @@ export class CameraRig {
     }
 
     // Beim Wallrun von der Wand weg neigen
-    const targetRoll = player.state === 'wallrun' ? -player.wall.n.dot(this.right) * 0.2 : 0;
+    let targetRoll = 0;
+    if (player.state === 'wallrun') targetRoll = -player.wall.n.dot(this.right) * 0.2;
+    else if (swinging) targetRoll = Math.max(-0.14, Math.min(0.14, -this.latAcc * 0.005));
     this.roll += (targetRoll - this.roll) * (1 - Math.exp(-6 * dt));
     this.camera.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');
   }

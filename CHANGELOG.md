@@ -3,6 +3,42 @@
 Alle nennenswerten Änderungen an diesem Projekt. Format angelehnt an
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [0.2.0] – 2026-10-26
+
+Neuer Look, neue Spielfigur, echte Animationen und flüssigeres Schwingen.
+
+### Hinzugefügt
+- **Spielfigur Kaia**: blauer Bob mit Pony und Haarspange, gemaltes
+  Anime-Gesicht, offene dunkle Jacke mit gelbem Saum, helles Top, Shorts, asymmetrische Socken, Sneaker,
+  kompakte Enterhaken-Ausrüstung an der Hüfte. Farben zentral in `LOOK` (`src/character.js`).
+- **Keyframe-Animationen** über den Three.js-`AnimationMixer` mit Überblendungen und Catmull-Rom-Glättung:
+  Idle, Laufen (Takt passt sich dem Tempo an), Sprung, Steigen, Fallen, Landung, Superhelden-Landung,
+  Rutschen, Schwingen, Winde, Gas-Schub, Wallrun und Salto beim Wandsprung. Dazu Kopfdrehung in
+  Zielrichtung und nachschwingende Haare.
+- **Anime-Rendering:** Cel-Shading für Stadt, Boden und Figur, Tuschelinien aus dem Tiefenpuffer,
+  Outline-Hülle um die Figur, Bloom, Farbkorrektur, FXAA.
+- **Dystopische Stadt-Details:** Neon-Schilder, Werbetafeln auf Dächern, Leuchtkanten, blinkende
+  Flugwarnlichter, Straßenlaternen mit Lichtkegeln, Zebrastreifen, aufsteigende Funken und eine riesige
+  Mauer am Horizont.
+- **Tuning:** neue Regler für Seil (Steifigkeit, Dämpfung, max. Dehnung, Einholgeschwindigkeit,
+  Schwung beim Lösen) und Grafik (Tuschelinien, Bloom, Belichtung, Sättigung).
+
+### Geändert
+- **Abendstimmung:** Orange-lila Himmel mit beleuchteten Wolken, Sternen und tief stehender Sonne;
+  Dunst folgt der Himmelsfarbe in Blickrichtung, dazu Smog in den Straßenschluchten.
+- **Fenster** leuchten warm oder neon-farbig bzw. spiegeln den Abendhimmel.
+- **Schwingphysik:** Das Seil ist leicht elastisch (Feder und Dämpfer, harte Grenze bei 1,5 m Dehnung),
+  dadurch federt das Straffen weich ab statt zu rucken. Die Winde holt lockeres Seil sanft ein,
+  WASD wirkt beim Schwingen nur quer zum Seil, und beim Lösen eines gespannten Seils gibt es einen
+  kleinen Schwung in Flugrichtung.
+- **Kamera:** geglättete Verfolgung mit Vorhersage (keine Rucke mehr bei Seil-Straffen oder Aufprall),
+  leichtes Kurvenneigen beim Schwingen.
+- **HUD** im Comic-Stil mit schrägen Gelb-Schwarz-Elementen.
+- Kollisionskörper an die kleinere Figur angepasst (1,64 m statt 1,80 m).
+
+### Entfernt
+- Bisherige Low-Poly-Figur mit Umhang und Klingen.
+
 ## [0.1.0] – 2026-10-26
 
 Erster spielbarer Prototyp: Sandbox ohne Level oder Ziel, um Schwingen und Wallrun zu testen.
@@ -24,4 +60,5 @@ Erster spielbarer Prototyp: Sandbox ohne Level oder Ziel, um Schwingen und Wallr
 - **HUD und Werkzeuge:** Fadenkreuz mit Reichweitenanzeige, Tempo, Höhe, Gas und Zustand; Tuning-Menü (G),
   Zeitlupe (T), Screenshot (P); Startskript mit lokalem PowerShell-Server.
 
+[0.2.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.1.0
