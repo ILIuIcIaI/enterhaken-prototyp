@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Enterhaken Prototyp</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app"></div>
+  <canvas id="speedlines"></canvas>
+  <div id="vignette"></div>
+
+  <div id="hud">
+    <div id="crosshair" class="none">
+      <div class="hook-ind left idle" id="hookL"></div>
+      <div class="ring"></div>
+      <div class="dot"></div>
+      <div class="hook-ind right idle" id="hookR"></div>
+      <div id="aimDist"></div>
+    </div>
+    <div id="stateWrap"><span id="state" class="air">LUFT</span><span id="slowmo" class="hidden">ZEITLUPE</span></div>
+    <div id="stats">
+      <div class="speed"><span id="speed">0</span><small>km/h</small></div>
+      <div id="alt">0 m Höhe</div>
+    </div>
+    <div id="gasWrap">
+      <div class="label">GAS</div>
+      <div id="gasBar"><div id="gasFill"></div></div>
+    </div>
+    <div id="hint">H Steuerung · G Tuning · R Reset</div>
+  </div>
+
+  <div id="help" class="hidden">
+    <h3>Steuerung</h3>
+    <dl>
+      <dt>Maus</dt><dd>Umsehen / zielen</dd>
+      <dt>LMB / RMB halten</dt><dd>Linker / rechter Haken</dd>
+      <dt>Leertaste</dt><dd>Springen, Wandsprung · halten = Seil einholen</dd>
+      <dt>Shift</dt><dd>Gas-Schub in Blickrichtung</dd>
+      <dt>W A S D</dt><dd>Laufen · Schwung steuern · Wallrun-Richtung</dd>
+      <dt>S (Wallrun)</dt><dd>Von der Wand lösen</dd>
+      <dt>R</dt><dd>Zurück zum Start</dd>
+      <dt>T</dt><dd>Zeitlupe</dd>
+      <dt>C</dt><dd>Schulter wechseln</dd>
+      <dt>G</dt><dd>Tuning-Menü</dd>
+      <dt>P</dt><dd>Screenshot</dd>
+    </dl>
+  </div>
+
+  <div id="overlay">
+    <div class="panel">
+      <h1>ENTERHAKEN</h1>
+      <p class="sub">Gameplay-Prototyp · Schwingen &amp; Wallrun</p>
+      <div class="cols">
+        <dl>
+          <dt>Maus</dt><dd>Zielen – das Fadenkreuz muss ein Gebäude treffen</dd>
+          <dt>Linke / rechte Maustaste</dt><dd>Haken abschießen, halten = eingehakt bleiben</dd>
+          <dt>Leertaste halten</dt><dd>Seilwinde zieht dich zum Anker</dd>
+          <dt>Shift</dt><dd>Gas-Schub</dd>
+        </dl>
+        <dl>
+          <dt>W A S D</dt><dd>Laufen / Schwung pumpen</dd>
+          <dt>Gegen eine Wand prallen</dt><dd>Automatischer Wallrun – W + Blick lenkt, hoch schauen = hochlaufen</dd>
+          <dt>Leertaste im Wallrun</dt><dd>Wandsprung</dd>
+          <dt>R · T · C · G · H · P</dt><dd>Reset · Zeitlupe · Schulter · Tuning · Hilfe · Screenshot</dd>
+        </dl>
+      </div>
+      <p class="start">Klicken zum Starten</p>
+      <p class="resume">Pausiert – klicken zum Fortsetzen</p>
+    </div>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>

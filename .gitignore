@@ -1,0 +1,10 @@
+# Laufzeit-Ausgabe (Screenshots aus dem Spiel, Taste P)
+screenshots/
+
+# Lokale Werkzeug-Konfiguration
+.claude/
+
+# Betriebssystem
+Thumbs.db
+desktop.ini
+.DS_Store
