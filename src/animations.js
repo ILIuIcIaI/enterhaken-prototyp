@@ -3,20 +3,21 @@ import * as THREE from 'three';
 // Keyframe-Animationen für die Figur. Posen sind Gelenkwinkel in Grad (Euler XYZ).
 // Konventionen (Figur schaut nach -Z):
 //   Oberschenkel/Oberarm x+ = nach vorne, Unterschenkel x- = Knie beugen, Unterarm x+ = Ellbogen beugen,
-//   Fuß x- = Zehen strecken, Rumpf x- = nach vorne lehnen, Kopf x+ = nach oben schauen,
-//   Arm z: links negativ / rechts positiv = seitlich abspreizen, Brust y+ = rechte Schulter vor.
+//   Fuß x+ = Zehen hoch (Ferse setzt auf), x- = Zehen strecken, Rumpf x- = nach vorne lehnen,
+//   Kopf x+ = nach oben schauen, Arm z: links negativ / rechts positiv = seitlich abspreizen,
+//   Brust y+ = rechte Schulter vor, Hüfte y- = linke Hüfte vor, Hüfte z+ = rechte Hüftseite hoch.
 // Die Clips werden mit Catmull-Rom-Splines dicht abgetastet und als THREE.AnimationClip
 // für den AnimationMixer erzeugt.
 
 export const JOINTS = [
-  'flip', 'hips', 'spine', 'chest', 'neck', 'head',
+  'flip', 'hips', 'spine', 'chest', 'neck', 'head', 'shoulderL', 'shoulderR',
   'upperArmL', 'forearmL', 'handL', 'upperArmR', 'forearmR', 'handR',
   'thighL', 'shinL', 'footL', 'thighR', 'shinR', 'footR',
 ];
 
 const mirrorName = (n) => (n.endsWith('L') ? n.slice(0, -1) + 'R' : n.endsWith('R') ? n.slice(0, -1) + 'L' : n);
 
-// Spiegelt eine Pose links/rechts (für die zweite Hälfte von Laufzyklen).
+// Spiegelt eine Pose links/rechts (für die zweite Hälfte von Gangzyklen).
 export function mirror(pose) {
   const out = {};
   for (const [k, v] of Object.entries(pose)) {
@@ -46,7 +47,7 @@ const get = (pose, joint, i) => (pose[joint] ? pose[joint][i] : 0);
 // keys: [[zeit, pose], ...]; pose.bob = Höhenversatz der Figur in Metern
 export function buildClip(name, keys, baseY, loop = true) {
   const duration = keys[keys.length - 1][0];
-  const fps = 30;
+  const fps = 40;
   const frames = Math.max(2, Math.round(duration * fps) + 1);
   const times = new Float32Array(frames);
   for (let f = 0; f < frames; f++) times[f] = (f / (frames - 1)) * duration;
@@ -54,8 +55,7 @@ export function buildClip(name, keys, baseY, loop = true) {
   const n = keys.length;
   const at = (idx) => {
     if (loop) {
-      // letzter Key == erster Key → beim Umlaufen den doppelten Key überspringen
-      const m = n - 1;
+      const m = n - 1; // letzter Key == erster Key
       return keys[((idx % m) + m) % m][1];
     }
     return keys[Math.min(n - 1, Math.max(0, idx))][1];
@@ -84,52 +84,118 @@ export function buildClip(name, keys, baseY, loop = true) {
     tracks.push(new THREE.QuaternionKeyframeTrack(`${joint}.quaternion`, times, values));
   }
   const pos = new Float32Array(frames * 3);
-  for (let f = 0; f < frames; f++) {
-    pos[f * 3 + 1] = baseY + sample(times[f], (p) => p.bob ?? 0);
-  }
+  for (let f = 0; f < frames; f++) pos[f * 3 + 1] = baseY + sample(times[f], (p) => p.bob ?? 0);
   tracks.push(new THREE.VectorKeyframeTrack('model.position', times, pos));
   return new THREE.AnimationClip(name, duration, tracks);
 }
 
-// ------------------------------------------------------------------ Posen
+// ------------------------------------------------------------------ Stand
 
-const IDLE_A = {
-  hips: [0, 4, 3], spine: [2, -2, -2], chest: [-2, -2, -1], neck: [0, 0, 0], head: [-4, 6, 3],
-  thighL: [5, 0, -4], shinL: [-8, 0, 0], footL: [3, 0, 0],
-  thighR: [-3, 0, 5], shinR: [-3, 0, 0], footR: [0, 0, 0],
-  upperArmL: [6, 0, -10], forearmL: [20, 0, 0], handL: [0, 0, 10],
-  upperArmR: [-4, 0, 9], forearmR: [16, 0, 0], handR: [0, 0, -8],
+const IDLE_R = { // Gewicht auf dem rechten Bein, Kontrapost
+  hips: [0, 5, 4], spine: [3, -2, -2], chest: [-3, -3, -2], neck: [2, 2, 1], head: [-3, 7, 3],
+  shoulderL: [0, 0, 2], shoulderR: [0, 0, -1],
+  thighL: [9, -8, -6], shinL: [-16, 0, 0], footL: [8, 0, 0],
+  thighR: [-2, 0, -4], shinR: [-2, 0, 0], footR: [0, 0, 0],
+  upperArmL: [5, 0, -7], forearmL: [16, 0, 0], handL: [6, 0, 8],
+  upperArmR: [-4, 10, 9], forearmR: [24, 0, 0], handR: [8, 0, -10],
+  bob: -0.006,
 };
-const IDLE_B = { ...IDLE_A, chest: [-4, -2, -1], spine: [3, -2, -2], head: [-2, 8, 2], upperArmL: [4, 0, -12], upperArmR: [-2, 0, 11], bob: 0.008 };
+const IDLE_R2 = { ...IDLE_R, chest: [-5, -3, -2], spine: [4, -2, -2], shoulderL: [0, 0, 3.5], shoulderR: [0, 0, -2.5], head: [-1, 9, 2], bob: -0.002 };
+const IDLE_L = { ...mirror(IDLE_R), head: [-2, -4, -2], upperArmR: [3, 0, 8], forearmR: [18, 0, 0], upperArmL: [-2, -6, -10], forearmL: [26, 0, 0] };
+const IDLE_L2 = { ...IDLE_L, chest: [-5, 3, 2], spine: [4, 2, 2], head: [0, -6, -1], bob: -0.002 };
 
-const RUN_A = { // linker Fuß setzt auf
-  hips: [0, -9, 0], spine: [-8, 6, 0], chest: [-8, 9, 0], neck: [6, -7, 0], head: [6, -5, 0],
-  thighL: [42, 0, 0], shinL: [-22, 0, 0], footL: [12, 0, 0],
-  thighR: [-28, 0, 0], shinR: [-98, 0, 0], footR: [-32, 0, 0],
-  upperArmL: [-42, 0, -12], forearmL: [78, 0, 0], upperArmR: [52, 0, 12], forearmR: [96, 0, 0],
-  bob: -0.03,
+// ------------------------------------------------------------------ Gehen (gewichtig: Fersenaufsatz, Absinken, Abrollen)
+
+const W_CONTACT = {
+  hips: [0, -7, 0], spine: [-3, 3, 0], chest: [-2, 6, 0], neck: [1, -3, 0], head: [1, -3, 0],
+  thighL: [30, 0, 0], shinL: [-5, 0, 0], footL: [16, 0, 0],
+  thighR: [-17, 0, 0], shinR: [-20, 0, 0], footR: [-20, 0, 0],
+  upperArmL: [-20, 0, -6], forearmL: [14, 0, 0], handL: [0, 0, 8],
+  upperArmR: [22, 0, 6], forearmR: [28, 0, 0], handR: [0, 0, -8],
+  bob: -0.012,
 };
-const RUN_B = { // Flugphase: links drückt ab, rechtes Knie zieht nach vorn
-  hips: [0, 0, 0], spine: [-10, 0, 0], chest: [-7, 0, 0], neck: [7, 0, 0], head: [5, 0, 0],
-  thighL: [-14, 0, 0], shinL: [-38, 0, 0], footL: [-28, 0, 0],
-  thighR: [64, 0, 0], shinR: [-108, 0, 0], footR: [8, 0, 0],
-  upperArmL: [6, 0, -12], forearmL: [86, 0, 0], upperArmR: [12, 0, 12], forearmR: [86, 0, 0],
+const W_LOAD = {
+  hips: [0, -4, -3], spine: [-3, 2, 1], chest: [-3, 3, 1], neck: [2, -2, 0], head: [2, -2, 0],
+  thighL: [22, 0, 0], shinL: [-18, 0, 0], footL: [2, 0, 0],
+  thighR: [-8, 0, 0], shinR: [-40, 0, 0], footR: [-32, 0, 0],
+  upperArmL: [-12, 0, -6], forearmL: [16, 0, 0], upperArmR: [14, 0, 6], forearmR: [26, 0, 0],
+  bob: -0.034,
+};
+const W_PASS = {
+  hips: [0, 0, -4], spine: [-2, 0, 1], chest: [-1, 0, 2], neck: [0, 0, 0], head: [0, 0, 0],
+  thighL: [2, 0, 0], shinL: [-6, 0, 0], footL: [0, 0, 0],
+  thighR: [20, 0, 0], shinR: [-54, 0, 0], footR: [-4, 0, 0],
+  upperArmL: [0, 0, -6], forearmL: [18, 0, 0], upperArmR: [2, 0, 6], forearmR: [22, 0, 0],
+  bob: 0.022,
+};
+const W_PUSH = {
+  hips: [0, 4, -2], spine: [-3, -2, 1], chest: [-2, -3, 1], neck: [1, 2, 0], head: [1, 2, 0],
+  thighL: [-13, 0, 0], shinL: [-8, 0, 0], footL: [-12, 0, 0],
+  thighR: [30, 0, 0], shinR: [-20, 0, 0], footR: [6, 0, 0],
+  upperArmL: [12, 0, -6], forearmL: [22, 0, 0], upperArmR: [-12, 0, 6], forearmR: [18, 0, 0],
+  bob: 0.006,
+};
+
+// ------------------------------------------------------------------ Sprint (starke Vorlage, kräftiger Armeinsatz)
+
+const S_CONTACT = {
+  hips: [0, -11, 0], spine: [-14, 6, 0], chest: [-12, 11, 0], neck: [9, -6, 0], head: [10, -5, 0],
+  thighL: [48, 0, 0], shinL: [-26, 0, 0], footL: [10, 0, 0],
+  thighR: [-26, 0, 0], shinR: [-100, 0, 0], footR: [-36, 0, 0],
+  upperArmL: [-56, 0, -10], forearmL: [84, 0, 0], handL: [0, 0, 10],
+  upperArmR: [64, 0, 10], forearmR: [102, 0, 0], handR: [0, 0, -10],
+  bob: -0.045,
+};
+const S_DOWN = {
+  ...S_CONTACT, hips: [0, -7, 0], spine: [-15, 4, 0], chest: [-14, 7, 0],
+  thighL: [34, 0, 0], shinL: [-44, 0, 0], footL: [2, 0, 0],
+  thighR: [-4, 0, 0], shinR: [-114, 0, 0], footR: [-28, 0, 0],
+  upperArmL: [-38, 0, -10], upperArmR: [46, 0, 10],
+  bob: -0.055,
+};
+const S_FLIGHT = {
+  hips: [0, 0, 0], spine: [-16, 0, 0], chest: [-10, 0, 0], neck: [8, 0, 0], head: [9, 0, 0],
+  thighL: [-18, 0, 0], shinL: [-42, 0, 0], footL: [-32, 0, 0],
+  thighR: [72, 0, 0], shinR: [-110, 0, 0], footR: [6, 0, 0],
+  upperArmL: [8, 0, -10], forearmL: [92, 0, 0], upperArmR: [10, 0, 10], forearmR: [88, 0, 0],
   bob: 0.05,
 };
+const S_REACH = {
+  ...S_FLIGHT, hips: [0, 5, 0], chest: [-11, -5, 0],
+  thighL: [-26, 0, 0], shinL: [-72, 0, 0], footL: [-30, 0, 0],
+  thighR: [62, 0, 0], shinR: [-58, 0, 0], footR: [12, 0, 0],
+  upperArmL: [30, 0, -10], upperArmR: [-26, 0, 10],
+  bob: 0.02,
+};
+
+// ------------------------------------------------------------------ Luft
 
 const AIR_UP = {
-  spine: [-4, 0, 0], chest: [-2, 0, 0], head: [6, 0, 0],
-  thighL: [80, 0, -4], shinL: [-102, 0, 0], footL: [-12, 0, 0],
-  thighR: [8, 0, 4], shinR: [-62, 0, 0], footR: [-28, 0, 0],
-  upperArmL: [58, 0, -48], forearmL: [52, 0, 0], upperArmR: [40, 0, 55], forearmR: [44, 0, 0],
+  spine: [-4, 0, 0], chest: [-2, 0, 0], head: [8, 0, 0],
+  thighL: [82, 0, -4], shinL: [-104, 0, 0], footL: [-12, 0, 0],
+  thighR: [6, 0, 4], shinR: [-64, 0, 0], footR: [-30, 0, 0],
+  upperArmL: [56, 0, -46], forearmL: [52, 0, 0], upperArmR: [38, 0, 54], forearmR: [44, 0, 0],
+};
+const APEX = {
+  spine: [2, 0, 0], chest: [4, 0, 0], head: [6, 0, 0],
+  thighL: [48, 0, -6], shinL: [-80, 0, 0], footL: [-20, 0, 0],
+  thighR: [18, 0, 6], shinR: [-54, 0, 0], footR: [-26, 0, 0],
+  upperArmL: [30, 0, -66], forearmL: [40, 0, 0], upperArmR: [26, 0, 64], forearmR: [38, 0, 0],
 };
 const FALL_A = {
-  spine: [6, 0, 0], chest: [6, 0, 0], head: [10, 0, 0],
+  spine: [6, 0, 0], chest: [6, 0, 0], head: [12, 0, 0],
   thighL: [38, 0, -6], shinL: [-72, 0, 0], footL: [-22, 0, 0],
   thighR: [-6, 0, 6], shinR: [-42, 0, 0], footR: [-22, 0, 0],
   upperArmL: [40, 0, -78], forearmL: [30, 0, 0], upperArmR: [36, 0, 72], forearmR: [34, 0, 0],
 };
 const FALL_B = { ...FALL_A, thighL: [10, 0, -6], shinL: [-44, 0, 0], thighR: [32, 0, 6], shinR: [-76, 0, 0], upperArmL: [50, 0, -68], upperArmR: [46, 0, 80] };
+const FALL_FAST_A = {
+  spine: [10, 0, 0], chest: [10, 0, 0], head: [18, 0, 0],
+  thighL: [30, 0, -14], shinL: [-80, 0, 0], footL: [-30, 0, 0],
+  thighR: [-10, 0, 14], shinR: [-30, 0, 0], footR: [-30, 0, 0],
+  upperArmL: [80, 0, -96], forearmL: [20, 0, 0], upperArmR: [20, 0, 92], forearmR: [40, 0, 0],
+};
+const FALL_FAST_B = { ...mirror(FALL_FAST_A), spine: [10, 0, 0], chest: [10, 0, 0], head: [18, 0, 0] };
 
 const CROUCH = {
   spine: [-14, 0, 0], chest: [-24, 0, 0], head: [22, 0, 0],
@@ -137,6 +203,22 @@ const CROUCH = {
   thighR: [72, 0, 8], shinR: [-112, 0, 0], footR: [34, 0, 0],
   upperArmL: [38, 0, -28], forearmL: [52, 0, 0], upperArmR: [42, 0, 28], forearmR: [48, 0, 0],
   bob: -0.3,
+};
+const CHARGE = { // tief in die Knie, Arme nach hinten – wie eine gespannte Feder
+  hips: [0, 0, 0], spine: [-16, 0, 0], chest: [-30, 0, 0], neck: [14, 0, 0], head: [20, 0, 0],
+  shoulderL: [0, 0, 4], shoulderR: [0, 0, -4],
+  thighL: [92, 0, -14], shinL: [-128, 0, 0], footL: [36, 0, 0],
+  thighR: [88, 0, 14], shinR: [-124, 0, 0], footR: [34, 0, 0],
+  upperArmL: [-62, 0, -26], forearmL: [34, 0, 0], handL: [20, 0, 0],
+  upperArmR: [-60, 0, 26], forearmR: [30, 0, 0], handR: [20, 0, 0],
+  bob: -0.4,
+};
+const LAUNCH = {
+  spine: [6, 0, 0], chest: [10, 0, 0], neck: [6, 0, 0], head: [22, 0, 0],
+  thighL: [4, 0, -2], shinL: [-4, 0, 0], footL: [-50, 0, 0],
+  thighR: [-4, 0, 2], shinR: [-8, 0, 0], footR: [-50, 0, 0],
+  upperArmL: [172, 0, -12], forearmL: [8, 0, 0], upperArmR: [168, 0, 12], forearmR: [8, 0, 0],
+  bob: 0.04,
 };
 const HERO_LAND = { // Superhelden-Landung: Knie und Hand am Boden
   hips: [0, 10, 0], spine: [-16, 0, 0], chest: [-38, -8, 0], neck: [12, 0, 0], head: [26, -6, 0],
@@ -152,6 +234,13 @@ const SLIDE = {
   upperArmL: [24, 0, -62], forearmL: [30, 0, 0], upperArmR: [-10, 0, 58], forearmR: [24, 0, 0],
   bob: -0.24,
 };
+const SKID = { // Abbremsen aus dem Sprint: zurücklehnen, vorderes Bein stemmt
+  hips: [0, 14, 0], spine: [6, 0, 0], chest: [12, 6, 0], neck: [-6, 0, 0], head: [-6, -8, 0],
+  thighL: [44, 0, -6], shinL: [-12, 0, 0], footL: [22, 0, 0],
+  thighR: [-24, 0, 8], shinR: [-62, 0, 0], footR: [-18, 0, 0],
+  upperArmL: [44, 0, -34], forearmL: [30, 0, 0], upperArmR: [30, 0, 40], forearmR: [36, 0, 0],
+  bob: -0.1,
+};
 const SWING_A = {
   spine: [-4, 0, 0], chest: [-2, 0, 0], head: [12, 0, 0],
   thighL: [30, 0, -4], shinL: [-42, 0, 0], footL: [-36, 0, 0],
@@ -165,13 +254,21 @@ const REEL = {
   thighR: [80, 0, 6], shinR: [-104, 0, 0], footR: [-18, 0, 0],
   upperArmL: [96, 0, -16], forearmL: [22, 0, 0], upperArmR: [96, 0, 16], forearmR: [22, 0, 0],
 };
-const BOOST_A = {
-  spine: [-8, 0, 0], chest: [-12, 0, 0], head: [24, 0, 0],
-  thighL: [-6, 0, -4], shinL: [-22, 0, 0], footL: [-44, 0, 0],
-  thighR: [-14, 0, 4], shinR: [-34, 0, 0], footR: [-44, 0, 0],
-  upperArmL: [-62, 0, -24], forearmL: [12, 0, 0], upperArmR: [-62, 0, 24], forearmR: [12, 0, 0],
+const DASH = { // gestreckt wie ein Pfeil (Körper liegt dabei fast waagrecht)
+  spine: [-4, 0, 0], chest: [-6, 0, 0], neck: [20, 0, 0], head: [34, 0, 0],
+  thighL: [-6, 0, -3], shinL: [-16, 0, 0], footL: [-48, 0, 0],
+  thighR: [-12, 0, 3], shinR: [-28, 0, 0], footR: [-48, 0, 0],
+  upperArmL: [-36, 0, -14], forearmL: [10, 0, 0], upperArmR: [-36, 0, 14], forearmR: [10, 0, 0],
 };
-const BOOST_B = { ...BOOST_A, thighL: [-14, 0, -4], shinL: [-34, 0, 0], thighR: [-6, 0, 4], shinR: [-22, 0, 0] };
+const GLIDE_A = { // Arme weit gespannt für die Flügel, Hohlkreuz, Blick nach vorn
+  spine: [8, 0, 0], chest: [10, 0, 0], neck: [26, 0, 0], head: [34, 0, 0],
+  shoulderL: [0, 0, 4], shoulderR: [0, 0, -4],
+  thighL: [-10, 0, -15], shinL: [-12, 0, 0], footL: [-46, 0, 0],
+  thighR: [-10, 0, 15], shinR: [-12, 0, 0], footR: [-46, 0, 0],
+  upperArmL: [8, 0, -86], forearmL: [6, 0, 0], handL: [0, 0, -10],
+  upperArmR: [8, 0, 86], forearmR: [6, 0, 0], handR: [0, 0, 10],
+};
+const GLIDE_B = { ...GLIDE_A, upperArmL: [14, 0, -82], upperArmR: [12, 0, 83], thighL: [-6, 0, -12], thighR: [-13, 0, 16], shinR: [-18, 0, 0], chest: [8, 0, 0] };
 const TUCK = {
   spine: [-20, 0, 0], chest: [-24, 0, 0], head: [-10, 0, 0],
   thighL: [110, 0, -8], shinL: [-130, 0, 0], footL: [-20, 0, 0],
@@ -180,26 +277,39 @@ const TUCK = {
 };
 
 const wallLean = (p) => ({ ...p, spine: [-14, p.spine?.[1] ?? 0, 0], chest: [-12, p.chest?.[1] ?? 0, 0], bob: (p.bob ?? 0) * 0.5 });
+const cycle4 = (A, B, C, D, dur) => [
+  [0, A], [dur * 0.125, B], [dur * 0.25, C], [dur * 0.375, D],
+  [dur * 0.5, mirror(A)], [dur * 0.625, mirror(B)], [dur * 0.75, mirror(C)], [dur * 0.875, mirror(D)], [dur, A],
+];
+
+export const WALK_CYCLE = 1.0;   // Sekunden pro Doppelschritt bei Gehtempo
+export const SPRINT_CYCLE = 0.64;
 
 export function createClips(baseY) {
-  const runCycle = (A, B, dur) => [[0, A], [dur * 0.25, B], [dur * 0.5, mirror(A)], [dur * 0.75, mirror(B)], [dur, A]];
   return {
-    idle: buildClip('idle', [[0, IDLE_A], [1.4, IDLE_B], [2.8, IDLE_A]], baseY),
-    run: buildClip('run', runCycle(RUN_A, RUN_B, 0.62), baseY),
-    wallrun: buildClip('wallrun', runCycle(wallLean(RUN_A), wallLean(RUN_B), 0.48), baseY),
+    idle: buildClip('idle', [[0, IDLE_R], [1.6, IDLE_R2], [3.4, IDLE_L], [5.0, IDLE_L2], [6.8, IDLE_R]], baseY),
+    walk: buildClip('walk', cycle4(W_CONTACT, W_LOAD, W_PASS, W_PUSH, WALK_CYCLE), baseY),
+    sprint: buildClip('sprint', cycle4(S_CONTACT, S_DOWN, S_FLIGHT, S_REACH, SPRINT_CYCLE), baseY),
+    wallrun: buildClip('wallrun', cycle4(wallLean(S_CONTACT), wallLean(S_DOWN), wallLean(S_FLIGHT), wallLean(S_REACH), 0.5), baseY),
+    charge: buildClip('charge', [[0, CHARGE], [0.15, { ...CHARGE, chest: [-31, 1, 0], bob: -0.405 }], [0.3, CHARGE]], baseY),
+    stop: buildClip('stop', [[0, SKID], [0.22, { ...SKID, chest: [6, 4, 0], bob: -0.12 }], [0.55, IDLE_R]], baseY, false),
     jump: buildClip('jump', [
       [0, { ...CROUCH, bob: -0.12, thighL: [36, 0, -6], thighR: [36, 0, 6], shinL: [-62, 0, 0], shinR: [-62, 0, 0] }],
       [0.1, { chest: [8, 0, 0], thighL: [12, 0, 0], shinL: [-10, 0, 0], footL: [-38, 0, 0], thighR: [-6, 0, 0], shinR: [-16, 0, 0], footR: [-38, 0, 0], upperArmL: [140, 0, -20], forearmL: [20, 0, 0], upperArmR: [140, 0, 20], forearmR: [20, 0, 0], bob: 0.02 }],
-      [0.38, AIR_UP],
+      [0.4, AIR_UP],
     ], baseY, false),
-    airUp: buildClip('airUp', [[0, AIR_UP], [0.5, { ...AIR_UP, thighL: [72, 0, -4], upperArmL: [62, 0, -52] }], [1.0, AIR_UP]], baseY),
+    superJump: buildClip('superJump', [[0, LAUNCH], [0.35, { ...LAUNCH, head: [28, 0, 0] }], [0.8, lerpPose(LAUNCH, APEX, 0.6)], [1.1, APEX]], baseY, false),
+    airUp: buildClip('airUp', [[0, AIR_UP], [0.5, { ...AIR_UP, thighL: [74, 0, -4], upperArmL: [62, 0, -52] }], [1.0, AIR_UP]], baseY),
+    apex: buildClip('apex', [[0, APEX], [0.6, { ...APEX, upperArmL: [34, 0, -70], thighR: [22, 0, 6] }], [1.2, APEX]], baseY),
     fall: buildClip('fall', [[0, FALL_A], [0.35, FALL_B], [0.7, FALL_A]], baseY),
-    land: buildClip('land', [[0, CROUCH], [0.12, { ...CROUCH, bob: -0.24 }], [0.4, IDLE_A]], baseY, false),
-    landHard: buildClip('landHard', [[0, HERO_LAND], [0.5, { ...HERO_LAND, bob: -0.4 }], [0.85, IDLE_A]], baseY, false),
+    fallFast: buildClip('fallFast', [[0, FALL_FAST_A], [0.3, FALL_FAST_B], [0.6, FALL_FAST_A]], baseY),
+    land: buildClip('land', [[0, CROUCH], [0.12, { ...CROUCH, bob: -0.24 }], [0.42, IDLE_R]], baseY, false),
+    landHard: buildClip('landHard', [[0, HERO_LAND], [0.5, { ...HERO_LAND, bob: -0.4 }], [0.9, IDLE_R]], baseY, false),
     slide: buildClip('slide', [[0, SLIDE], [0.5, { ...SLIDE, bob: -0.26, chest: [-12, 20, 0] }], [1.0, SLIDE]], baseY),
     swing: buildClip('swing', [[0, SWING_A], [0.8, SWING_B], [1.6, SWING_A]], baseY),
     reel: buildClip('reel', [[0, REEL], [0.25, { ...REEL, thighL: [84, 0, -6], thighR: [86, 0, 6] }], [0.5, REEL]], baseY),
-    boost: buildClip('boost', [[0, BOOST_A], [0.25, BOOST_B], [0.5, BOOST_A]], baseY),
+    dash: buildClip('dash', [[0, lerpPose(TUCK, DASH, 0.4)], [0.09, DASH], [0.4, DASH], [0.6, lerpPose(DASH, FALL_A, 0.5)]], baseY, false),
+    glide: buildClip('glide', [[0, GLIDE_A], [1.1, GLIDE_B], [2.2, GLIDE_A]], baseY),
     flip: buildClip('flip', [
       [0, { ...lerpPose(AIR_UP, TUCK, 0.5), flip: [0, 0, 0] }],
       [0.12, { ...TUCK, flip: [-110, 0, 0] }],

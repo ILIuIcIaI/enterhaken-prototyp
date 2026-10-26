@@ -9,10 +9,34 @@ export function createTuning(game) {
   const ph = gui.addFolder('Physik');
   ph.add(CONFIG.physics, 'gravity', 4, 40, 0.5).name('Schwerkraft');
   ph.add(CONFIG.physics, 'dragQuad', 0, 0.01, 0.0001).name('Luftwiderstand');
-  ph.add(CONFIG.player, 'runSpeed', 4, 30, 0.5).name('Laufgeschw.');
   ph.add(CONFIG.player, 'jumpSpeed', 2, 20, 0.5).name('Sprungkraft');
   ph.add(CONFIG.player, 'airAccel', 0, 30, 0.5).name('Luftsteuerung');
   ph.add(CONFIG.player, 'swingAccel', 0, 40, 0.5).name('Schwung-Steuerung');
+
+  const lo = gui.addFolder('Bewegung');
+  lo.add(CONFIG.locomotion, 'walkSpeed', 1, 8, 0.1).name('Gehtempo');
+  lo.add(CONFIG.locomotion, 'sprintSpeed', 4, 25, 0.5).name('Sprinttempo');
+  lo.add(CONFIG.locomotion, 'walkAccel', 1, 40, 0.5).name('Beschl. Gehen');
+  lo.add(CONFIG.locomotion, 'sprintAccel', 1, 40, 0.5).name('Beschl. Sprint');
+  lo.add(CONFIG.locomotion, 'decel', 1, 40, 0.5).name('Abbremsen');
+  lo.add(CONFIG.locomotion, 'turnWalk', 1, 20, 0.5).name('Drehen Gehen');
+  lo.add(CONFIG.locomotion, 'turnSprint', 0.5, 15, 0.1).name('Drehen Sprint');
+  lo.add(CONFIG.locomotion, 'chargeTime', 0.2, 3, 0.05).name('Aufladezeit (s)');
+  lo.add(CONFIG.locomotion, 'chargeMax', 10, 50, 0.5).name('Supersprung max.');
+
+  const da = gui.addFolder('Dash');
+  da.add(CONFIG.dash, 'speed', 5, 60, 1).name('Dash-Tempo');
+  da.add(CONFIG.dash, 'duration', 0.05, 1, 0.01).name('Dauer (s)');
+  da.add(CONFIG.dash, 'cooldown', 0, 2, 0.05).name('Abklingzeit (s)');
+  da.add(CONFIG.dash, 'cost', 0, 50, 1).name('Gasverbrauch');
+
+  const gl = gui.addFolder('Gleiter');
+  gl.add(CONFIG.glide, 'pitchBase', -0.6, 0.1, 0.01).name('Grund-Sinkwinkel');
+  gl.add(CONFIG.glide, 'pitchDive', -1.4, -0.2, 0.01).name('Sturzflug (W)');
+  gl.add(CONFIG.glide, 'pitchFlare', 0, 0.6, 0.01).name('Abfangen (S)');
+  gl.add(CONFIG.glide, 'drag', 0.001, 0.03, 0.0005).name('Luftwiderstand');
+  gl.add(CONFIG.glide, 'turnRate', 0.3, 4, 0.05).name('Wendigkeit');
+  gl.add(CONFIG.glide, 'stallSpeed', 0, 20, 0.5).name('Strömungsabriss');
 
   const hk = gui.addFolder('Enterhaken');
   hk.add(CONFIG.hook, 'range', 30, 400, 5).name('Reichweite');
@@ -30,8 +54,6 @@ export function createTuning(game) {
 
   const gs = gui.addFolder('Gas');
   gs.add(CONFIG.gas, 'infinite').name('Unendlich Gas');
-  gs.add(CONFIG.gas, 'boostAccel', 0, 100, 1).name('Schub');
-  gs.add(CONFIG.gas, 'boostCost', 0, 60, 1).name('Verbrauch Schub');
   gs.add(CONFIG.gas, 'reelCost', 0, 30, 0.5).name('Verbrauch Winde');
   gs.add(CONFIG.gas, 'regen', 0, 60, 1).name('Regeneration');
 
@@ -52,6 +74,7 @@ export function createTuning(game) {
   cam.add(CONFIG.camera, 'distance', 1.5, 15, 0.1).name('Abstand');
   cam.add(CONFIG.camera, 'sensitivity', 0.0005, 0.006, 0.0001).name('Mausempfindl.');
   cam.add(CONFIG.camera, 'invertY').name('Y invertieren');
+  cam.add(CONFIG.camera, 'bob', 0, 2, 0.05).name('Kamera-Wippen');
 
   const gr = gui.addFolder('Grafik');
   gr.add(CONFIG.graphics, 'ink', 0, 1.5, 0.05).name('Tuschelinien');
@@ -61,6 +84,7 @@ export function createTuning(game) {
 
   const w = gui.addFolder('Welt');
   w.add(CONFIG.world, 'timeScale', 0.05, 1.5, 0.05).name('Zeitfaktor');
+  w.add(CONFIG.world, 'fullscreen').name('Vollbild beim Start');
   w.add(CONFIG.world, 'seed', 1, 99999, 1).name('Stadt-Seed');
   w.add({ regen: () => game.regenerateCity() }, 'regen').name('Stadt neu generieren');
   w.add({ random: () => { CONFIG.world.seed = Math.floor(Math.random() * 99999) + 1; gui.controllersRecursive().forEach((c) => c.updateDisplay()); game.regenerateCity(); } }, 'random').name('Zufällige Stadt');

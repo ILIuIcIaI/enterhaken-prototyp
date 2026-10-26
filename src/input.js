@@ -1,4 +1,8 @@
+import { CONFIG } from './config.js';
+
 // Tastatur (physische Tasten via e.code, funktioniert also auch mit QWERTZ) und Maus.
+// Strg dient als Gleiter-Taste: Browser-Kürzel mit Strg werden abgefangen; Strg+W/T/N lassen sich
+// nur im Vollbild mit Tastatursperre (Chrome/Edge) blockieren – darum startet das Spiel im Vollbild.
 export class Input {
   constructor(lockTarget) {
     this.lockTarget = lockTarget;
@@ -9,7 +13,9 @@ export class Input {
     this.freeLook = false; // Debug-Modus: Maus ohne Pointer-Lock
 
     window.addEventListener('keydown', (e) => {
-      if (e.code === 'Space' || e.code === 'Tab' || e.code === 'F1') e.preventDefault();
+      if (e.code === 'Space' || e.code === 'Tab' || e.code === 'F1' || (this.active() && (e.ctrlKey || e.altKey))) e.preventDefault();
+      // mit Tastatursperre kommt Esc beim Spiel an statt den Pointer-Lock zu lösen
+      if (e.code === 'Escape' && this.locked) document.exitPointerLock?.();
       if (e.repeat) return;
       this.keys.add(e.code);
       this.pressedKeys.add(e.code);
@@ -36,6 +42,9 @@ export class Input {
       this.locked = document.pointerLockElement === this.lockTarget;
       if (!this.locked) this.releaseAll();
     });
+    document.addEventListener('fullscreenchange', () => {
+      if (!document.fullscreenElement) navigator.keyboard?.unlock?.();
+    });
   }
 
   active() {
@@ -43,6 +52,12 @@ export class Input {
   }
 
   requestLock() {
+    if (CONFIG.world.fullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) {
+      document.documentElement
+        .requestFullscreen()
+        .then(() => navigator.keyboard?.lock?.())
+        .catch(() => {});
+    }
     try {
       const r = this.lockTarget.requestPointerLock();
       if (r && r.catch) r.catch(() => {});

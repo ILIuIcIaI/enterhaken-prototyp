@@ -3,10 +3,11 @@ import { CONFIG } from './config.js';
 
 // Spielerphysik als Punktmasse mit AABB-Körper, integriert per Position-Based-Dynamics:
 //   1. Kräfte → Geschwindigkeit
-//   2. Zielposition vorhersagen, Seile als harte Abstandsbedingung (|p - anker| <= L) projizieren
+//   2. Zielposition vorhersagen, Seile als Feder + harte Dehnungsgrenze
 //   3. Achsenweise gegen die Stadt kollidieren
 //   4. Geschwindigkeit = tatsächliche Verschiebung / dt
-// Dadurch entsteht die Pendelbewegung (inkl. Zentripetalkraft und Ruck beim Straffen) ganz von selbst.
+// Am Boden bewegt sich die Figur mit Trägheit entlang ihrer Blickrichtung (Gehen / Sprinten),
+// in der Luft gibt es Dash und Gleiter.
 
 const EPS = 1e-4;
 const _a = new THREE.Vector3();
@@ -20,6 +21,8 @@ const _fwdH = new THREE.Vector3();
 const _target = new THREE.Vector3();
 
 const approach = (cur, target, delta) => (cur < target ? Math.min(cur + delta, target) : Math.max(cur - delta, target));
+const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
+const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
 function overlaps(p, b, hx, hy) {
   return (
@@ -45,11 +48,26 @@ export class Player {
     this.contacts = [];
     this.candidates = [];
     this.events = [];
-    this.boosting = false;
     this.reeling = false;
+    // Bodenbewegung
+    this.facingYaw = 0;
+    this.groundSpeed = 0;
+    this.turnRate = 0;
+    this.accel = 0;
+    this.sprinting = false;
+    this.stopArmed = false;
+    // Aufladesprung
+    this.charging = false;
+    this.charge = 0;
+    // Dash
+    this.dashTimer = 0;
+    this.dashCooldown = 0;
+    // Gleiter
+    this.gliding = false;
+    this.glide = { yaw: 0, pitch: 0, bank: 0, speed: 0 };
   }
 
-  reset(p) {
+  reset(p, yaw = 0) {
     this.pos.copy(p);
     this.prevPos.copy(p);
     this.vel.set(0, 0, 0);
@@ -57,24 +75,33 @@ export class Player {
     this.gas = CONFIG.gas.max;
     this.jumpBuffer = 0;
     this.wallCooldown.time = 0;
-  }
-
-  queueJump() {
-    this.jumpBuffer = 0.15;
+    this.facingYaw = yaw;
+    this.groundSpeed = 0;
+    this.charging = false;
+    this.charge = 0;
+    this.gliding = false;
+    this.dashTimer = 0;
   }
 
   get feetY() {
     return this.pos.y - CONFIG.player.halfHeight;
   }
 
-  // ctl: { move: {x, z}, reel, boost, camFwd, camRight }
+  get dashing() {
+    return this.dashTimer > 0;
+  }
+
+  // ctl: { move: {x, z}, reel, sprint, jumpHeld, jumpPressed, dashPressed, glideToggle, camFwd, camRight }
   step(dt, ctl, hooks) {
     const P = CONFIG.player, PH = CONFIG.physics, H = CONFIG.hook, G = CONFIG.gas;
     const v = this.vel;
     this.prevPos.copy(this.pos);
+    if (ctl.jumpPressed) this.jumpBuffer = 0.15;
     this.jumpBuffer -= dt;
     this.groundTimer -= dt;
     this.wallCooldown.time -= dt;
+    this.dashTimer -= dt;
+    this.dashCooldown -= dt;
 
     _fwdH.set(ctl.camFwd.x, 0, ctl.camFwd.z).normalize();
     _wish.set(0, 0, 0).addScaledVector(_fwdH, ctl.move.z).addScaledVector(ctl.camRight, ctl.move.x);
@@ -83,19 +110,33 @@ export class Player {
     let attached = 0;
     for (const h of hooks) if (h.state === 'attached') attached++;
     const hasGas = G.infinite || this.gas > 0.5;
-    this.reeling = ctl.reel && attached > 0 && hasGas;
-    this.boosting = ctl.boost && hasGas;
+    this.reeling = ctl.reel && attached > 0 && hasGas && !this.charging;
+    if (attached > 0 && this.gliding) this.stopGlide();
 
     _a.set(0, 0, 0);
     let gScale = 1;
+    let drag = true;
 
     if (this.state === 'ground') {
-      this.groundMove(dt, _wish);
-      if (this.jumpBuffer > 0) this.jump();
+      this.groundMove(dt, ctl, _wish, attached);
     } else if (this.state === 'wallrun') {
-      gScale = this.wallrunMove(dt, ctl, hooks);
+      if (ctl.dashPressed && this.canDash()) {
+        this.exitWallrun(true);
+        this.dash(ctl);
+      } else {
+        gScale = this.wallrunMove(dt, ctl, hooks);
+      }
     } else {
-      if (attached > 0) {
+      if (ctl.glideToggle && attached === 0) {
+        if (this.gliding) this.stopGlide();
+        else this.startGlide(ctl);
+      }
+      if (ctl.dashPressed && this.canDash()) this.dash(ctl);
+      if (this.gliding) {
+        this.glideMove(dt, ctl);
+        gScale = 0;
+        drag = false;
+      } else if (attached > 0) {
         // nur quer zum Seil wirken lassen: pumpt den Schwung, ohne gegen das Seil zu arbeiten
         this.ropeDir(hooks, _d);
         _t.copy(_wish).addScaledVector(_d, -_wish.dot(_d));
@@ -103,13 +144,14 @@ export class Player {
       } else if (v.dot(_wish) < P.airMaxSpeed) {
         _a.addScaledVector(_wish, P.airAccel);
       }
+      if (this.dashing && !this.gliding) gScale = 0.25;
       if (this.jumpBuffer > 0 && this.groundTimer > 0) this.jump();
     }
 
     // Schwerkraft + Luftwiderstand
     _a.y -= PH.gravity * gScale;
     const sp = v.length();
-    if (sp > 0.01) _a.addScaledVector(v, -(PH.dragLinear * sp + PH.dragQuad * sp * sp) / sp);
+    if (drag && sp > 0.01) _a.addScaledVector(v, -(PH.dragLinear * sp + PH.dragQuad * sp * sp) / sp);
 
     // Winde: zieht mit begrenzter Kraft zum Anker
     if (this.reeling) {
@@ -125,16 +167,9 @@ export class Player {
       if (!G.infinite) this.gas -= G.reelCost * dt;
     }
 
-    // Gas-Schub in Blickrichtung
-    if (this.boosting) {
-      _a.addScaledVector(ctl.camFwd, G.boostAccel);
-      if (!G.infinite) this.gas -= G.boostCost * dt;
-    }
-
     v.addScaledVector(_a, dt);
 
     // Elastisches Seil: Feder + Dämpfer, nur bei Dehnung über die Ruhelänge (Seile drücken nicht).
-    // Das federt das Straffen ab, statt die radiale Geschwindigkeit schlagartig zu vernichten.
     for (const h of hooks) {
       if (h.state !== 'attached') continue;
       _d.subVectors(this.pos, h.anchor);
@@ -146,8 +181,7 @@ export class Player {
         _d.divideScalar(dist);
         const vr = v.dot(_d);
         const T = Math.max(0, H.stiffness * stretch + H.damping * vr);
-        _a.copy(_d).multiplyScalar(-T * dt);
-        v.add(_a);
+        v.addScaledVector(_d, -T * dt);
         if (!h.taut && vr > 12) this.events.push({ type: 'snap', strength: vr });
         h.taut = true;
         h.tension = T;
@@ -191,28 +225,156 @@ export class Player {
     this.vel.multiplyScalar((sp + CONFIG.hook.releaseBoost) / sp);
   }
 
+  // ------------------------------------------------------------------ Boden: Gehen, Sprinten, Aufladesprung
+  groundMove(dt, ctl, wish, attached) {
+    const L = CONFIG.locomotion, P = CONFIG.player, v = this.vel;
+    const hs = Math.hypot(v.x, v.z);
+    const input = Math.min(1, wish.length());
+    const prevYaw = this.facingYaw;
+    const prevSpeed = this.groundSpeed;
+    // blockiert eine Wand, fällt das Tempo mit ab
+    this.groundSpeed = Math.min(this.groundSpeed, hs + 0.5);
+
+    // Aufladesprung: im Stand Leertaste halten, beim Loslassen senkrecht hoch
+    const canCharge = attached === 0 && hs < 1.5 && input < 0.1;
+    if (this.charging) {
+      if (!canCharge && input > 0.1) {
+        this.charging = false;
+        this.charge = 0;
+      } else {
+        this.charge = Math.min(1, this.charge + dt / L.chargeTime);
+        if (!ctl.jumpHeld) {
+          this.superJump();
+          return;
+        }
+      }
+    } else if (this.jumpBuffer > 0) {
+      this.jumpBuffer = 0;
+      if (canCharge) {
+        this.charging = true;
+        this.charge = 0;
+      } else {
+        this.jump();
+        return;
+      }
+    }
+
+    this.sprinting = false;
+    if (this.charging) {
+      this.groundSpeed = approach(this.groundSpeed, 0, L.decel * 2 * dt);
+    } else if (hs > L.sprintSpeed + 1.5) {
+      // schneller gelandet als man laufen kann: rutschen und abbremsen
+      this.groundSpeed = Math.max(0, hs - P.slideDecel * dt);
+      this.facingYaw = Math.atan2(-v.x, -v.z);
+    } else if (input > 0.1) {
+      this.stopArmed = true;
+      this.sprinting = !!ctl.sprint;
+      const desired = Math.atan2(-wish.x, -wish.z);
+      const diff = wrapAngle(desired - this.facingYaw);
+      const sprintMix = clamp((this.groundSpeed - L.walkSpeed) / (L.sprintSpeed - L.walkSpeed), 0, 1);
+      const turn = (L.turnWalk + (L.turnSprint - L.turnWalk) * sprintMix) * dt;
+      this.facingYaw = wrapAngle(this.facingYaw + clamp(diff, -turn, turn));
+      // scharfe Kehrtwende aus vollem Lauf: erst abbremsen, dann drehen
+      const sharp = Math.abs(diff) > 1.7 && this.groundSpeed > L.walkSpeed + 1;
+      const target = (this.sprinting ? L.sprintSpeed : L.walkSpeed) * input * (sharp ? 0.25 : 1);
+      const rate = target > this.groundSpeed ? (this.sprinting ? L.sprintAccel : L.walkAccel) : sharp ? L.sprintStopDecel : L.decel;
+      this.groundSpeed = approach(this.groundSpeed, target, rate * dt);
+    } else {
+      if (this.stopArmed && this.groundSpeed > L.walkSpeed + 2.5) this.events.push({ type: 'stop', strength: this.groundSpeed });
+      this.stopArmed = false;
+      const rate = this.groundSpeed > L.walkSpeed + 1 ? L.sprintStopDecel : L.decel;
+      this.groundSpeed = approach(this.groundSpeed, 0, rate * dt);
+    }
+
+    this.turnRate = wrapAngle(this.facingYaw - prevYaw) / dt;
+    this.accel = (this.groundSpeed - prevSpeed) / dt;
+    const moveYaw = hs > L.sprintSpeed + 1.5 ? Math.atan2(-v.x, -v.z) : this.facingYaw;
+    v.x = -Math.sin(moveYaw) * this.groundSpeed;
+    v.z = -Math.cos(moveYaw) * this.groundSpeed;
+  }
+
   jump() {
     this.vel.y = Math.max(this.vel.y, CONFIG.player.jumpSpeed);
     this.state = 'air';
     this.jumpBuffer = 0;
     this.groundTimer = 0;
+    this.charging = false;
     this.events.push({ type: 'jump' });
   }
 
-  groundMove(dt, wish) {
-    const P = CONFIG.player, v = this.vel;
-    const tx = wish.x * P.runSpeed, tz = wish.z * P.runSpeed;
-    const dx = tx - v.x, dz = tz - v.z;
+  superJump() {
+    const L = CONFIG.locomotion;
+    const c = this.charge;
+    this.vel.y = L.chargeMin + (L.chargeMax - L.chargeMin) * Math.pow(c, 0.85);
+    this.vel.x *= 0.3;
+    this.vel.z *= 0.3;
+    this.state = 'air';
+    this.groundTimer = 0;
+    this.charging = false;
+    this.charge = 0;
+    this.events.push({ type: c > 0.25 ? 'superjump' : 'jump', strength: c });
+  }
+
+  // ------------------------------------------------------------------ Luft: Dash
+  canDash() {
+    return this.dashCooldown <= 0 && (CONFIG.gas.infinite || this.gas >= CONFIG.dash.cost);
+  }
+
+  dash(ctl) {
+    const D = CONFIG.dash, v = this.vel;
+    const pitch = clamp(Math.asin(clamp(ctl.camFwd.y, -1, 1)), -0.35, 0.3);
+    _dir.set(ctl.camFwd.x, 0, ctl.camFwd.z).normalize().multiplyScalar(Math.cos(pitch));
+    _dir.y = Math.sin(pitch);
+    const along = v.dot(_dir);
+    _t.copy(v).addScaledVector(_dir, -along);
+    const speed = Math.min(D.maxSpeed, Math.max(along, 0) * D.keep + D.speed);
+    v.copy(_dir).multiplyScalar(speed).addScaledVector(_t, 0.3);
+    this.dashTimer = D.duration;
+    this.dashCooldown = D.cooldown;
+    if (!CONFIG.gas.infinite) this.gas -= D.cost;
+    if (this.gliding) this.glide.speed = Math.min(D.maxSpeed, this.glide.speed + D.speed * 0.6);
+    this.events.push({ type: 'dash' });
+  }
+
+  // ------------------------------------------------------------------ Luft: Gleiter
+  startGlide(ctl) {
+    const G = CONFIG.glide, v = this.vel, g = this.glide;
     const hs = Math.hypot(v.x, v.z);
-    const rate = (hs > P.runSpeed + 0.5 ? P.slideDecel : P.groundAccel) * dt;
-    const dl = Math.hypot(dx, dz);
-    if (dl > rate) {
-      v.x += (dx / dl) * rate;
-      v.z += (dz / dl) * rate;
-    } else {
-      v.x = tx;
-      v.z = tz;
-    }
+    this.gliding = true;
+    g.speed = Math.max(G.startSpeed, v.length());
+    g.yaw = hs > 3 ? Math.atan2(-v.x, -v.z) : Math.atan2(-ctl.camFwd.x, -ctl.camFwd.z);
+    g.pitch = clamp(Math.atan2(v.y, Math.max(hs, 1)), -0.9, 0.15);
+    g.bank = 0;
+    this.events.push({ type: 'glideOn' });
+  }
+
+  stopGlide() {
+    if (!this.gliding) return;
+    this.gliding = false;
+    this.events.push({ type: 'glideOff' });
+  }
+
+  glideMove(dt, ctl) {
+    const G = CONFIG.glide, g = this.glide, v = this.vel;
+    g.speed = Math.min(g.speed, v.length() + 2);
+    // Richtung folgt der Kamera (mit A/D zusätzlich), Querneigung aus der Drehrate
+    const camYaw = Math.atan2(-ctl.camFwd.x, -ctl.camFwd.z);
+    const diff = wrapAngle(camYaw - ctl.move.x * 0.5 - g.yaw);
+    const yawRate = clamp(diff * 2.5, -G.turnRate, G.turnRate);
+    g.yaw = wrapAngle(g.yaw + yawRate * dt);
+    g.bank += (clamp(yawRate / G.turnRate, -1, 1) * G.maxBank - g.bank) * (1 - Math.exp(-5 * dt));
+    this.turnRate = yawRate;
+    // Neigung: nach unten schauen = sinken und schneller werden, W = Sturzflug, S = abfangen
+    const camPitch = Math.asin(clamp(ctl.camFwd.y, -1, 1));
+    let target = clamp(G.pitchBase + camPitch * 0.6, G.pitchDive, G.pitchFlare);
+    if (ctl.move.z > 0.1) target = Math.min(target, G.pitchBase - 0.4);
+    if (ctl.move.z < -0.1) target = Math.max(target, G.pitchFlare);
+    if (g.speed < G.stallSpeed) target = Math.min(target, -0.5);
+    g.pitch += clamp(target - g.pitch, -G.pitchRate * dt, G.pitchRate * dt);
+    // Energie entlang der Flugbahn: Sinken beschleunigt, Steigen und Luftwiderstand bremsen
+    g.speed = Math.max(G.minSpeed, g.speed + (-CONFIG.physics.gravity * Math.sin(g.pitch) - G.drag * g.speed * g.speed) * dt);
+    const cp = Math.cos(g.pitch);
+    v.set(-Math.sin(g.yaw) * cp, Math.sin(g.pitch), -Math.cos(g.yaw) * cp).multiplyScalar(g.speed);
   }
 
   // ------------------------------------------------------------------ Wallrun
@@ -314,6 +476,7 @@ export class Player {
     this.vel.copy(_ip).addScaledVector(_dir, impact * W.impactConversion);
     this.vel.y = Math.min(this.vel.y, 25);
 
+    this.stopGlide();
     this.state = 'wallrun';
     this.wall.n.copy(_n);
     this.wall.t.set(-_n.z, 0, _n.x);
@@ -347,12 +510,21 @@ export class Player {
     if (ground) {
       if (this.state !== 'ground') {
         if (this.state === 'wallrun') this.exitWallrun(false);
-        this.events.push({ type: 'land', strength: -this.vPre.y });
+        this.stopGlide();
+        this.events.push({ type: 'land', strength: -this.vPre.y, speed: Math.hypot(this.vel.x, this.vel.z) });
+        // Tempo und Richtung aus der Luft übernehmen
+        this.groundSpeed = Math.hypot(this.vel.x, this.vel.z);
+        if (this.groundSpeed > 1) this.facingYaw = Math.atan2(-this.vel.x, -this.vel.z);
       }
       this.state = 'ground';
       this.groundTimer = 0.12;
     } else {
       if (this.state === 'ground') this.state = 'air';
+      if (this.state === 'air') {
+        const hs = Math.hypot(this.vel.x, this.vel.z);
+        if (hs > 1) this.facingYaw = Math.atan2(-this.vel.x, -this.vel.z);
+        this.charging = false;
+      }
       if (this.state === 'wallrun') {
         if (wallKeep) this.wall.lost = 0;
         else if ((this.wall.lost += dt) > 0.08) this.exitWallrun(false);
@@ -361,7 +533,7 @@ export class Player {
       }
     }
 
-    if (!this.boosting && !this.reeling) {
+    if (!this.reeling && !this.dashing) {
       this.gas = Math.min(G.max, this.gas + (this.state === 'ground' ? G.groundRegen : G.regen) * dt);
     }
     if (this.gas < 0) this.gas = 0;

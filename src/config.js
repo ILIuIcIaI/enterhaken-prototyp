@@ -9,13 +9,44 @@ export const CONFIG = {
   player: {
     halfWidth: 0.33,
     halfHeight: 0.82,
-    runSpeed: 12,
-    groundAccel: 70,
-    slideDecel: 20,       // Abbremsen, wenn man schneller als Laufgeschwindigkeit landet
-    jumpSpeed: 9,
+    slideDecel: 20,       // Abbremsen, wenn man schneller als Sprinttempo landet
+    jumpSpeed: 8.5,
     airAccel: 8,
     airMaxSpeed: 14,
     swingAccel: 13,       // WASD-Einfluss quer zum Seil, während ein Haken hängt (Schwung "pumpen")
+  },
+  locomotion: {
+    walkSpeed: 3.4,       // normales Gehen
+    sprintSpeed: 10.5,    // Shift halten
+    walkAccel: 7,         // träge Beschleunigung = spürbares Gewicht
+    sprintAccel: 9,
+    decel: 11,
+    sprintStopDecel: 15,
+    turnWalk: 7.5,        // rad/s – Drehgeschwindigkeit beim Gehen
+    turnSprint: 3.4,      // beim Sprinten weite Bögen statt Haken schlagen
+    chargeTime: 1.1,      // Sekunden bis zum voll aufgeladenen Sprung
+    chargeMin: 9,
+    chargeMax: 28,        // ca. 25 m hoch
+  },
+  dash: {
+    speed: 22,            // zusätzliche Geschwindigkeit in Blickrichtung
+    keep: 0.7,            // Anteil der bisherigen Geschwindigkeit in Dash-Richtung
+    maxSpeed: 60,
+    duration: 0.24,       // so lange wirkt kaum Schwerkraft
+    cooldown: 0.5,
+    cost: 16,
+  },
+  glide: {
+    pitchBase: -0.17,     // leichter Sinkflug (rad)
+    pitchDive: -0.75,     // W: steiler, schneller
+    pitchFlare: 0.24,     // S: abfangen, bremsen
+    pitchRate: 1.6,
+    drag: 0.008,          // Gleichgewicht ca. 19 m/s bei 3 m/s Sinken
+    turnRate: 1.7,
+    maxBank: 0.6,
+    stallSpeed: 8,
+    minSpeed: 5,
+    startSpeed: 12,
   },
   hook: {
     range: 140,
@@ -34,8 +65,6 @@ export const CONFIG = {
   },
   gas: {
     max: 100,
-    boostAccel: 30,
-    boostCost: 20,
     reelCost: 4,
     regen: 10,
     groundRegen: 30,
@@ -67,10 +96,12 @@ export const CONFIG = {
     height: 1.0,
     sensitivity: 0.0022,
     invertY: false,
+    bob: 1,               // Kamera-Wippen beim Gehen/Sprinten
   },
   world: {
     seed: 1337,
     timeScale: 1,
+    fullscreen: true,     // Vollbild + Tastatursperre, damit Strg-Kombinationen den Tab nicht schließen
   },
   graphics: {
     ink: 1,               // Stärke der Tuschelinien

@@ -37,16 +37,18 @@ export function toonMaterial(color, { rim = 0.35, rimColor = '#ffb37a', levels =
 }
 
 // Invertierte Hülle: Rückseiten entlang der Normalen aufgebläht und dunkel gefärbt.
-let outlineMat = null;
-export function outlineMaterial() {
-  if (outlineMat) return outlineMat;
-  outlineMat = new THREE.MeshBasicMaterial({ color: '#1b0f24', side: THREE.BackSide });
-  outlineMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uOutline = { value: 0.009 };
-    outlineMat.userData.uniform = shader.uniforms.uOutline;
+// Eine Instanz pro Strichstärke (Meter), funktioniert auch mit gehäuteten Meshes.
+const outlineMats = new Map();
+export function outlineMaterial(thickness = 0.008) {
+  if (outlineMats.has(thickness)) return outlineMats.get(thickness);
+  const mat = new THREE.MeshBasicMaterial({ color: '#1b0f24', side: THREE.BackSide });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uOutline = { value: thickness };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nuniform float uOutline;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed += normal * uOutline;');
   };
-  return outlineMat;
+  mat.customProgramCacheKey = () => 'outline';
+  outlineMats.set(thickness, mat);
+  return mat;
 }
