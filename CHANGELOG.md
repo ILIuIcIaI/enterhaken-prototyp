@@ -1,146 +1,147 @@
 # Changelog
 
-Alle nennenswerten Änderungen an diesem Projekt. Format angelehnt an
-[Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung nach [SemVer](https://semver.org/lang/de/).
+All notable changes to this project. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
 ## [0.4.0] – 2026-10-27
 
-Runde, detailliertere Kaia, komplett neues Gehen und Sprinten, Gleiter mit echtem Flugmodell und eine natürliche
-Insel mit Strand, Parks und abwechslungsreicherer Stadt. Basis der Mechaniken ist wieder v0.2.0.
+A rounder, more detailed Kaia, completely new walking and sprinting, a glider with a real flight model, and a
+natural island with a beach, parks and a more varied city. The mechanics are based on v0.2.0 again.
 
-### Hinzugefügt
-- **Runde Figur aus Distanzfeldern:** Jacke, Haare, Hände und Schuhe werden aus Signed Distance Fields modelliert
-  und per Marching Cubes zu weichen Meshes – keine kantigen Einzelteile mehr. Jacke als Stoffschale mit Falten,
-  Kapuze, Ärmeln, Bündchen und vorne offener Front; Haare als zu einer Masse verschmolzene Strähnen mit Pony,
-  Gesichtssträhnen, Spitzen und Zopf, Glanzlicht in Strähnen aufgelöst; Hände mit Fingern; runde Sneaker.
-  Die Haare sind ebenfalls gehäutet und schwingen nach.
-- **Natürliche Insel** mit unregelmäßiger Küstenlinie, Sandstrand rundherum, Uferpromenade mit Laternen und Meer
-  mit Himmelsspiegelung, Sonnenglitzern und Schaumkante.
-- **Parks und Grün:** Zentralpark mit Teich, kleinere Parks, Plätze, Straßenbäume und Kirschbäume.
-- **Abwechslungsreichere Stadt:** Viertel (Hochhaus-Zentrum, Midtown, Wohnviertel, Uferbebauung) mit eigenen
-  Farbpaletten; neue Gebäudeformen (gestufte Hochhäuser, Zwillingstürme mit Skybridge, Turmspitzen, Scheibenhäuser,
-  L-Formen, Reihenhäuser, Blöcke mit Innenhof); Dachaufbauten, Wassertürme, Antennen.
-- **Wende:** Bei scharfem Richtungswechsel aus vollem Lauf bremst Kaia ab, dreht sich um und stößt sich in die neue
-  Richtung ab – mit eigener Animation und Staub.
-- **Joggen** als Zwischenstufe zwischen Gehen und Sprint.
-- **Gas-Schub** aus v0.2.0 ist zurück: Shift in der Luft halten. Antippen bleibt der Dash.
+### Added
+- **Rounded character from distance fields:** jacket, hair, hands and shoes are modeled from signed distance fields
+  and turned into soft meshes via marching cubes – no more angular separate parts. The jacket is a fabric shell with
+  folds, hood, sleeves, cuffs and an open front; the hair is strands merged into one mass with bangs, face strands,
+  tips and a ponytail, with the highlight broken up into strands; hands with fingers; rounded sneakers.
+  The hair is skinned as well and swings along.
+- **Natural island** with an irregular coastline, a sandy beach all around, a waterfront promenade with street lamps,
+  and a sea with sky reflections, sun glitter and a foam line.
+- **Parks and greenery:** a central park with a pond, smaller parks, squares, street trees and cherry trees.
+- **More varied city:** districts (high-rise downtown, midtown, residential quarter, waterfront) with their own color
+  palettes; new building shapes (stepped high-rises, twin towers with a skybridge, spires, slab blocks, L-shapes,
+  row houses, courtyard blocks); rooftop structures, water towers, antennas.
+- **Turnaround:** on a sharp direction change at full speed, Kaia brakes, turns around and pushes off in the new
+  direction – with its own animation and dust.
+- **Jogging** as an intermediate step between walking and sprinting.
+- The **gas boost** from v0.2.0 is back: hold Shift in the air. Tapping is still the dash.
 
-### Geändert
-- **Gehen und Sprinten von Grund auf neu:** Laufrichtung und Körperausrichtung sind getrennt, Kaia dreht sich in die
-  neue Richtung, statt mit dem ganzen Körper zu kippen. Die Drehrate sinkt mit dem Tempo (weite Bögen im Sprint),
-  Oberkörper und Kopf drehen sich leicht in die Kurve voraus. Weicheres Anfahren und Abbremsen, das Gewicht bleibt.
-- **Realistischere Laufanimationen:** neue Posen für Gehen, Joggen und Sprint; die Schrittlänge folgt exakt dem
-  Tempo (keine rutschenden Füße), die Gangarten werden phasensynchron überblendet.
-- **Gleiter-Physik neu:** Auftrieb senkrecht zur Flugbahn abhängig vom Anstellwinkel, Luftwiderstand und
-  Strömungsabriss; Kurven mit Querneigung (koordiniert, ohne Durchsacken); Sturzflug baut Tempo auf, Abfangen setzt
-  es in Höhe um. Die Kamera neigt sich in Kurven mit.
-- Mechaniken (Schwingen, Wallrun, Gas) basieren wieder auf v0.2.0.
+### Changed
+- **Walking and sprinting rebuilt from scratch:** movement direction and body orientation are separate, Kaia turns
+  toward the new direction instead of tilting her whole body. The turn rate drops with speed (wide arcs when
+  sprinting), torso and head lean slightly into the turn. Smoother acceleration and braking while keeping the weight.
+- **More realistic running animations:** new poses for walking, jogging and sprinting; stride length follows the
+  speed exactly (no foot sliding), the gaits are blended in phase sync.
+- **New glider physics:** lift perpendicular to the flight path depending on the angle of attack, drag and stalling;
+  banked turns (coordinated, without sinking); diving builds speed, pulling up converts it into height. The camera
+  tilts into turns.
+- Mechanics (swinging, wall run, gas) are based on v0.2.0 again.
 
-### Entfernt
-- Aufladesprung (Supersprung aus dem Stand).
-- Die Mauer am Horizont.
-- Kamera-Wippen beim Gehen.
+### Removed
+- Charged jump (super jump from a standstill).
+- The wall on the horizon.
+- Camera bob while walking.
 
-### Behoben
-- Tastendrücke für Springen, Dash und Gleiter gingen bei hoher Bildwiederholrate verloren, wenn ein Frame keinen
-  Physikschritt enthielt.
+### Fixed
+- Key presses for jump, dash and glider were lost at high frame rates when a frame contained no physics step.
 
 ## [0.3.0] – 2026-10-26
 
-Detailliertes Modell von Kaia, gewichtige Bewegung, Aufladesprung, Luft-Dash und Gleiter.
+Detailed model of Kaia, weighty movement, charged jump, air dash and glider.
 
-### Hinzugefügt
-- **Neues, detailliertes Modell von Kaia**: rund 60 verjüngte Haarsträhnen in zwei Lagen
-  (Pony, Gesichtssträhnen, abstehende Spitzen, kleiner Zopf mit rotem Haargummi, rote Spange), türkise Augen mit
-  Lidfalte und Glanzlichtern, schmales Anime-Kinn, Ohren; übergroße schwarze Jacke mit hellgrauen Kanten, flach
-  aufliegender Kapuze mit rotem Futter und Kordeln, orangen Ärmelfeldern, gerippten Bündchen und Abzeichen;
-  schwarzes Shirt mit weißem Print; roter Gürtel mit Schnalle, Anhänger und rotem Band; grauer asymmetrischer
-  Faltenrock mit überlappender Wickelbahn und Karo-Lage; Shorts; linker Overknee-Strumpf mit weißem Streifen und
-  Rüschenrand, rechte rostbraune Muster-Socke; Hände mit Fingern, roter Halbfinger-Handschuh, türkises Armband;
-  klobige Sneaker aus Sohle, Zwischensohle, Kappe, Fersenteil, Schnürung und roter Lasche.
-- **Skinning** für Arme, Beine, Oberkörper, Jacke, Ärmel, Strumpf und Socke – weiche Gelenke statt Einzelteilen.
-- **Gehen und Sprinten:** WASD geht, Shift sprintet. Bewegung entlang der Blickrichtung mit begrenzter Drehrate
-  (weite Bögen im Sprint), träges Beschleunigen, Abbremsen vor scharfen Wenden, Stopp-Animation beim Anhalten.
-- **Aufladesprung:** im Stand Leertaste halten (bis 1,1 s), loslassen = Supersprung bis ca. 25 m, mit Staubwirbel,
-  Kamera-Zoom und Aufladeton.
-- **Luft-Dash** (Shift in der Luft): kurzer Gasstoß in Blickrichtung, auch aus Wallrun und Gleitflug, mit Abklingzeit.
-- **Gleiter** (Strg antippen): leuchtende Flügelmembranen
-  zwischen Armen und Beinen, Energiemodell (Sinken beschleunigt, Steigen bremst, Strömungsabriss), Lenken per Blick,
-  W = Sturzflug, S = abfangen, Querneigung in Kurven.
-- **Neue Animationen:** gewichtiger Gang (Fersenaufsatz, Absinken, Abrollen, Hüftschwung), kraftvoller Sprint,
-  Idle mit Gewichtsverlagerung, Abbremsen, Aufladen, Supersprung, Gipfel, schnelles Fallen, Dash, Gleiten.
-  Geh- und Sprintzyklus laufen phasensynchron, die Schrittlänge passt sich dem Tempo an.
-- **Gewicht in der Präsentation:** Kamera-Wippen im Schrittrhythmus, Schrittgeräusche, Lehnen beim Beschleunigen
-  und in Kurven, Sichtfeld-Stoß beim Dash, mehr Sichtfeld beim Sprinten.
-- **Vollbild mit Tastatursperre** beim Spielstart (Chrome/Edge), damit Strg-Kombinationen den Tab nicht schließen.
-- HUD: Aufladering ums Fadenkreuz, Zustände GLEITEN, SPRINT und AUFLADEN; neue Tuning-Ordner Bewegung, Dash, Gleiter.
+### Added
+- **New, detailed model of Kaia:** around 60 tapered hair strands in two layers
+  (bangs, face strands, spiky tips, small ponytail with a red hair tie, red clip), turquoise eyes with
+  eyelid crease and highlights, slim anime chin, ears; an oversized black jacket with light gray edges, a flat-lying
+  hood with red lining and drawstrings, orange sleeve panels, ribbed cuffs and a badge; a black shirt with a white
+  print; a red belt with buckle, pendant and red strap; a gray asymmetric pleated skirt with an overlapping wrap panel
+  and a plaid layer; shorts; an over-knee stocking on the left with a white stripe and ruffled edge, a rust-brown
+  patterned sock on the right; hands with fingers, a red fingerless glove, a turquoise bracelet; chunky sneakers made
+  of sole, midsole, toe cap, heel counter, laces and a red tab.
+- **Skinning** for arms, legs, torso, jacket, sleeves, stocking and sock – smooth joints instead of separate parts.
+- **Walking and sprinting:** WASD walks, Shift sprints. Movement along the view direction with a limited turn rate
+  (wide arcs when sprinting), sluggish acceleration, braking before sharp turns, a stop animation when halting.
+- **Charged jump:** hold Space while standing (up to 1.1 s), release for a super jump of up to about 25 m, with a
+  dust swirl, camera zoom and charge sound.
+- **Air dash** (Shift in the air): a short gas burst in the view direction, also out of a wall run or glide, with
+  cooldown.
+- **Glider** (tap Ctrl): glowing wing membranes
+  between arms and legs, energy model (sinking accelerates, climbing slows down, stalling), steering by looking,
+  W = dive, S = pull up, banking in turns.
+- **New animations:** weighty walk (heel strike, settling, roll-off, hip sway), powerful sprint,
+  idle with weight shifting, braking, charging, super jump, apex, fast falling, dash, gliding.
+  Walk and sprint cycles run in phase sync, stride length adapts to speed.
+- **Weight in the presentation:** camera bob in step rhythm, footstep sounds, leaning when accelerating
+  and in turns, a field-of-view kick on dash, a wider field of view when sprinting.
+- **Fullscreen with keyboard lock** on game start (Chrome/Edge), so Ctrl shortcuts don't close the tab.
+- HUD: charge ring around the crosshair, states for gliding, sprinting and charging; new tuning folders for movement,
+  dash and glider.
 
-### Geändert
-- Animationen werden über eine eigene Gewichtssteuerung überblendet statt über einzelne Crossfades.
-- Jackensaum, Haare und Rockhälften schwingen bzw. folgen den Beinen (weniger Durchdringen).
-- Der bisherige dauerhafte Gas-Schub (Shift) wurde durch Sprint und Dash ersetzt.
+### Changed
+- Animations are blended with a custom weighting system instead of individual crossfades.
+- Jacket hem, hair and skirt halves swing or follow the legs (less clipping).
+- The previous continuous gas boost (Shift) was replaced by sprint and dash.
 
-### Behoben
-- Der Kopf drehte sich bei schnellen Bewegungen in der Luft unabhängig vom Körper. Die Blickrichtung wirkt jetzt nur
-  noch am Boden, geglättet und begrenzt.
-- Seitliches Nachschwingen der Haare wurde bei gekipptem Körper falsch berechnet.
+### Fixed
+- The head turned independently of the body during fast movement in the air. The look direction now only applies
+  on the ground, smoothed and limited.
+- Sideways hair swing was calculated incorrectly when the body was tilted.
 
 ## [0.2.0] – 2026-10-26
 
-Neuer Look, neue Spielfigur, echte Animationen und flüssigeres Schwingen.
+New look, new player character, real animations and smoother swinging.
 
-### Hinzugefügt
-- **Spielfigur Kaia**: blauer Bob mit Pony und Haarspange, gemaltes
-  Anime-Gesicht, offene dunkle Jacke mit gelbem Saum, helles Top, Shorts, asymmetrische Socken, Sneaker,
-  kompakte Enterhaken-Ausrüstung an der Hüfte. Farben zentral in `LOOK` (`src/character.js`).
-- **Keyframe-Animationen** über den Three.js-`AnimationMixer` mit Überblendungen und Catmull-Rom-Glättung:
-  Idle, Laufen (Takt passt sich dem Tempo an), Sprung, Steigen, Fallen, Landung, Superhelden-Landung,
-  Rutschen, Schwingen, Winde, Gas-Schub, Wallrun und Salto beim Wandsprung. Dazu Kopfdrehung in
-  Zielrichtung und nachschwingende Haare.
-- **Anime-Rendering:** Cel-Shading für Stadt, Boden und Figur, Tuschelinien aus dem Tiefenpuffer,
-  Outline-Hülle um die Figur, Bloom, Farbkorrektur, FXAA.
-- **Dystopische Stadt-Details:** Neon-Schilder, Werbetafeln auf Dächern, Leuchtkanten, blinkende
-  Flugwarnlichter, Straßenlaternen mit Lichtkegeln, Zebrastreifen, aufsteigende Funken und eine riesige
-  Mauer am Horizont.
-- **Tuning:** neue Regler für Seil (Steifigkeit, Dämpfung, max. Dehnung, Einholgeschwindigkeit,
-  Schwung beim Lösen) und Grafik (Tuschelinien, Bloom, Belichtung, Sättigung).
+### Added
+- **Player character Kaia:** blue bob with bangs and a hair clip, painted
+  anime face, an open dark jacket with a yellow hem, a light top, shorts, asymmetric socks, sneakers,
+  compact grappling gear on the hips. Colors are defined in one place in `LOOK` (`src/character.js`).
+- **Keyframe animations** via the Three.js `AnimationMixer` with crossfades and Catmull-Rom smoothing:
+  idle, running (cadence adapts to speed), jump, rising, falling, landing, superhero landing,
+  sliding, swinging, winch, gas boost, wall run and a flip on wall jumps. Plus head turning toward the
+  aim direction and swinging hair.
+- **Anime rendering:** cel shading for city, ground and character, ink lines from the depth buffer,
+  an outline shell around the character, bloom, color grading, FXAA.
+- **Dystopian city details:** neon signs, rooftop billboards, glowing edges, blinking
+  aircraft warning lights, street lamps with light cones, crosswalks, rising sparks and a giant
+  wall on the horizon.
+- **Tuning:** new sliders for the rope (stiffness, damping, max stretch, reel-in speed,
+  release boost) and graphics (ink lines, bloom, exposure, saturation).
 
-### Geändert
-- **Abendstimmung:** Orange-lila Himmel mit beleuchteten Wolken, Sternen und tief stehender Sonne;
-  Dunst folgt der Himmelsfarbe in Blickrichtung, dazu Smog in den Straßenschluchten.
-- **Fenster** leuchten warm oder neon-farbig bzw. spiegeln den Abendhimmel.
-- **Schwingphysik:** Das Seil ist leicht elastisch (Feder und Dämpfer, harte Grenze bei 1,5 m Dehnung),
-  dadurch federt das Straffen weich ab statt zu rucken. Die Winde holt lockeres Seil sanft ein,
-  WASD wirkt beim Schwingen nur quer zum Seil, und beim Lösen eines gespannten Seils gibt es einen
-  kleinen Schwung in Flugrichtung.
-- **Kamera:** geglättete Verfolgung mit Vorhersage (keine Rucke mehr bei Seil-Straffen oder Aufprall),
-  leichtes Kurvenneigen beim Schwingen.
-- **HUD** im Comic-Stil mit schrägen Gelb-Schwarz-Elementen.
-- Kollisionskörper an die kleinere Figur angepasst (1,64 m statt 1,80 m).
+### Changed
+- **Evening mood:** orange-purple sky with lit clouds, stars and a low sun;
+  haze follows the sky color in the view direction, plus smog in the street canyons.
+- **Windows** glow warm or in neon colors, or reflect the evening sky.
+- **Swing physics:** the rope is slightly elastic (spring and damper, hard limit at 1.5 m of stretch),
+  so tightening is softly cushioned instead of jerky. The winch reels in slack rope smoothly,
+  WASD only acts perpendicular to the rope while swinging, and releasing a taut rope gives a
+  small boost in the direction of flight.
+- **Camera:** smoothed follow with prediction (no more jerks when the rope tightens or on impact),
+  slight banking in turns while swinging.
+- **HUD** in a comic style with slanted yellow-and-black elements.
+- Collision body adjusted to the smaller character (1.64 m instead of 1.80 m).
 
-### Entfernt
-- Bisherige Low-Poly-Figur mit Umhang und Klingen.
+### Removed
+- The previous low-poly character with cape and blades.
 
 ## [0.1.0] – 2026-10-26
 
-Erster spielbarer Prototyp: Sandbox ohne Level oder Ziel, um Schwingen und Wallrun zu testen.
+First playable prototype: a sandbox without levels or goals for testing swinging and wall-running.
 
-### Hinzugefügt
-- **Stadt:** prozedural generierte Hochhausstadt (14 × 14 Blöcke) mit gestuften Türmen bis ca. 330 m,
-  Dachaufbauten und Antennen; über einen Seed reproduzierbar.
-- **Enterhaken:** zwei unabhängige Haken (linke/rechte Maustaste halten). Sie fliegen als Projektil genau auf
-  das anvisierte Gebäude (Reichweite 140 m); ein Fehlschuss wird eingeholt; Seile wickeln sich um Kanten.
-- **Seilphysik:** Punktmasse mit Schwerkraft und Luftwiderstand, Seile als harte Abstandsbedingung
-  (Position-Based Dynamics), feste 120-Hz-Physik mit interpoliertem Rendering.
-- **Seilwinde und Gas:** Leertaste halten zieht zum Anker, Shift gibt Gas-Schub; Gasvorrat mit Regeneration.
-- **Wallrun:** startet automatisch beim Aufprall auf eine Fassade; Aufprallenergie wird in Laufrichtung umgelenkt,
-  Hochlaufen per Blickrichtung, Wandsprung, läuft über angrenzende Gebäude hinweg weiter.
-- **Kamera:** Schulterkamera mit Kollision, Sichtfeld und Abstand abhängig vom Tempo, Neigung beim Wallrun.
-- **Figur:** Low-Poly-Figur mit Umhang, Klingen und Manöverausrüstung, prozedural animiert.
-- **Präsentation:** Abendlicht mit Schatten, prozedurale Fassaden mit Fenstern, Straßen-Shader,
-  Speedlines, Partikel und prozeduraler Sound (Fahrtwind, Gas, Winde, Effekte).
-- **HUD und Werkzeuge:** Fadenkreuz mit Reichweitenanzeige, Tempo, Höhe, Gas und Zustand; Tuning-Menü (G),
-  Zeitlupe (T), Screenshot (P); Startskript mit lokalem PowerShell-Server.
+### Added
+- **City:** procedurally generated high-rise city (14 × 14 blocks) with stepped towers up to about 330 m,
+  rooftop structures and antennas; reproducible via a seed.
+- **Grappling hooks:** two independent hooks (hold left/right mouse button). They fly as projectiles exactly to
+  the targeted building (140 m range); a miss is reeled back in; ropes wrap around edges.
+- **Rope physics:** point mass with gravity and air drag, ropes as hard distance constraints
+  (position-based dynamics), fixed 120 Hz physics with interpolated rendering.
+- **Winch and gas:** hold Space to pull toward the anchor, Shift for a gas boost; gas supply with regeneration.
+- **Wall run:** starts automatically when hitting a facade; impact energy is redirected into the running direction,
+  run upward by looking up, wall jump, continues across adjacent buildings.
+- **Camera:** shoulder camera with collision, field of view and distance depending on speed, tilt during wall runs.
+- **Character:** low-poly character with cape, blades and grappling gear, procedurally animated.
+- **Presentation:** evening light with shadows, procedural facades with windows, street shader,
+  speed lines, particles and procedural sound (wind, gas, winch, effects).
+- **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
+  slow motion (T), screenshot (P); start script with a local PowerShell server.
 
 [0.4.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.3.0

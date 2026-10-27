@@ -1,118 +1,118 @@
-# Enterhaken – Gameplay-Prototyp
+# Grappling Hook – Gameplay Prototype
 
-Third-Person-Prototyp: Mit zwei Enterhaken durch eine dichte, prozedural generierte, dystopische
-Hochhausstadt auf einer Insel in Abendstimmung schwingen, gleiten und an Wänden entlangrennen.
-Spielfigur ist eine Anime-Figur namens Kaia. Kein Level, kein Ziel – nur eine Sandbox
-zum Testen von Gefühl und Physik.
+Third-person prototype: swing, glide and wall-run with two grappling hooks through a dense, procedurally generated,
+dystopian high-rise city on an island at dusk. The player character is an anime-style girl named Kaia. No levels,
+no goals – just a sandbox for testing feel and physics.
 
-**Aktuelle Version: 0.4.0** · Änderungen siehe [CHANGELOG.md](CHANGELOG.md)
+**Current version: 0.4.0** · see [CHANGELOG.md](CHANGELOG.md) for changes
 
 | | |
 |---|---|
-| ![Kaia von vorne](docs/screenshots/figur-vorne.png) | ![Kaia aus der Nähe](docs/screenshots/figur-gesicht.png) |
-| ![Sprint durch den Park](docs/screenshots/sprint.png) | ![Wende aus dem Sprint](docs/screenshots/wende.png) |
-| ![Schwingen in der Häuserschlucht](docs/screenshots/schwingen.png) | ![Wallrun](docs/screenshots/wallrun.png) |
-| ![Gleiten über der Insel](docs/screenshots/gleiten.png) | ![Gleiter von der Seite](docs/screenshots/gleiten-seite.png) |
-| ![Strand bei Sonnenuntergang](docs/screenshots/strand.png) | ![Strand mit Skyline](docs/screenshots/strand-stadt.png) |
-| ![Park mit Teich](docs/screenshots/park.png) | ![Die Insel aus der Luft](docs/screenshots/insel.png) |
+| ![Kaia from the front](docs/screenshots/figur-vorne.png) | ![Kaia close-up](docs/screenshots/figur-gesicht.png) |
+| ![Sprinting through the park](docs/screenshots/sprint.png) | ![Turning out of a sprint](docs/screenshots/wende.png) |
+| ![Swinging through the street canyon](docs/screenshots/schwingen.png) | ![Wall run](docs/screenshots/wallrun.png) |
+| ![Gliding over the island](docs/screenshots/gleiten.png) | ![Glider from the side](docs/screenshots/gleiten-seite.png) |
+| ![Beach at sunset](docs/screenshots/strand.png) | ![Beach with skyline](docs/screenshots/strand-stadt.png) |
+| ![Park with pond](docs/screenshots/park.png) | ![The island from above](docs/screenshots/insel.png) |
 
-## Starten
+## Getting started
 
-Doppelklick auf **`start.bat`** – startet einen kleinen lokalen Server (PowerShell, nichts zu installieren)
-und öffnet `http://localhost:8080/` im Browser. Internet wird benötigt (Three.js kommt vom CDN).
-Beim Klick ins Spiel wechselt der Browser ins Vollbild (mit Tastatursperre in Chrome/Edge, damit
-Strg-Kombinationen wie Strg+W den Tab nicht schließen). Abschaltbar im Tuning-Menü unter „Welt“.
+Double-click **`start.bat`** – it starts a small local server (PowerShell, nothing to install) and opens
+`http://localhost:8080/` in your browser. An internet connection is required (Three.js is loaded from a CDN).
+Clicking into the game switches the browser to fullscreen (with keyboard lock in Chrome/Edge, so Ctrl shortcuts such
+as Ctrl+W don't close the tab). This can be turned off in the tuning menu (World section).
 
-Alternativ: `powershell -ExecutionPolicy Bypass -File serve.ps1 -Open`
+Alternatively: `powershell -ExecutionPolicy Bypass -File serve.ps1 -Open`
 
-## Steuerung
+## Controls
 
-| Eingabe | Aktion |
+| Input | Action |
 |---|---|
-| Maus | Umsehen / zielen |
-| Linke / rechte Maustaste halten | Linken / rechten Haken abschießen, solange gehalten eingehakt |
-| W A S D | Gehen · am Seil: Schwung pumpen · im Wallrun: W + Blick lenkt (hoch schauen = hochlaufen) |
-| Shift | Am Boden halten: **sprinten** · in der Luft antippen: **Dash** · in der Luft halten: **Gas-Schub** |
-| Leertaste | Springen, im Wallrun: Wandsprung mit Salto · am Seil **halten** = Winde zieht zum Anker |
-| Strg (antippen) | **Gleiter** in der Luft an/aus – Blick lenkt, W = Sturzflug, S = abfangen |
-| S im Wallrun | Von der Wand lösen |
-| R / T / C | Reset / Zeitlupe / Schulter wechseln |
-| G / H / P | Tuning-Menü / Hilfe / Screenshot (landet in `screenshots/`) |
+| Mouse | Look around / aim |
+| Hold left / right mouse button | Fire left / right hook, stays attached while held |
+| W A S D | Walk · on a rope: pump the swing · during a wall run: W + view direction steers (look up = run up) |
+| Shift | Hold on the ground: **sprint** · tap in the air: **dash** · hold in the air: **gas boost** |
+| Space | Jump, during a wall run: wall jump with a flip · **hold** on a rope = winch pulls you to the anchor |
+| Ctrl (tap) | Toggle the **glider** in the air – view direction steers, W = dive, S = pull up |
+| S during a wall run | Let go of the wall |
+| R / T / C | Reset / slow motion / switch shoulder |
+| G / H / P | Tuning menu / help / screenshot (saved to `screenshots/`) |
 | Esc | Pause |
 
-## Mechaniken
+## Mechanics
 
-- **Gehen & Sprinten:** Gehen (2,2 m/s), über Joggen bis Sprint (9 m/s). Laufrichtung und Körperausrichtung sind
-  getrennt: Kaia dreht sich in die neue Richtung, statt den ganzen Körper zu kippen; je schneller, desto weiter der
-  Bogen. Bei scharfen Richtungswechseln aus vollem Lauf bremst sie ab, dreht sich um und stößt sich in die neue
-  Richtung ab (Wende). Beim Loslassen aus dem Sprint gibt es einen Abbremsschritt.
-- **Dash & Gas-Schub:** Shift in der Luft antippen = kurzer Gasstoß in Blickrichtung (mit Abklingzeit); Shift halten =
-  dauerhafter Gas-Schub wie in v0.2.0. Beides kostet Gas, das sich ohne Schub wieder auffüllt.
-- **Gleiter:** leuchtende Flügelmembranen zwischen Armen und Beinen mit echtem Flugmodell: Auftrieb senkrecht zur
-  Flugbahn abhängig vom Anstellwinkel, Luftwiderstand, Strömungsabriss bei zu steilem Anstellen. Der Blick lenkt:
-  Kurven fliegt Kaia mit Querneigung, Sturzflug baut Tempo auf, Abfangen setzt es wieder in Höhe um.
-  Landen, Wallrun oder Einhaken beenden das Gleiten.
-- **Zielen ist Pflicht:** Der Haken fliegt genau dorthin, wo das Fadenkreuz ein Gebäude trifft
-  (Grün = in Reichweite 140 m, Rot = zu weit).
-- **Seilphysik:** Punktmasse mit Schwerkraft und Luftwiderstand, leicht elastisches Seil (Feder + Dämpfer, harte
-  Grenze bei 1,5 m Dehnung), sanftes Einholen, Steuerung quer zum Seil, kleiner Schwung beim Lösen, Seile wickeln
-  sich um Kanten.
-- **Wallrun:** Prallt man in der Luft gegen eine Fassade, startet automatisch ein Wallrun; Wandsprung mit Salto.
+- **Walking & sprinting:** from walking (2.2 m/s) through jogging up to a sprint (9 m/s). Movement direction and body
+  orientation are separate: Kaia turns toward the new direction instead of tilting her whole body; the faster she
+  goes, the wider the arc. On sharp direction changes at full speed she brakes, turns around and pushes off in the
+  new direction (turnaround). Releasing the keys out of a sprint plays a braking step.
+- **Dash & gas boost:** tap Shift in the air for a short gas burst in the view direction (with cooldown); hold Shift
+  for a continuous gas boost as in v0.2.0. Both use gas, which refills when you're not boosting.
+- **Glider:** glowing wing membranes between arms and legs with a real flight model: lift perpendicular to the flight
+  path depending on the angle of attack, drag, and stalling when pitched up too steeply. The view direction steers:
+  Kaia banks into turns, diving builds speed, pulling up converts it back into height. Landing, wall-running or
+  hooking in ends the glide.
+- **Aiming matters:** the hook flies exactly to where the crosshair hits a building
+  (green = within the 140 m range, red = too far).
+- **Rope physics:** point mass with gravity and air drag, slightly elastic rope (spring + damper, hard limit at 1.5 m
+  of stretch), smooth reeling in, steering perpendicular to the rope, a small boost when letting go, ropes wrap
+  around edges.
+- **Wall run:** hitting a facade in mid-air automatically starts a wall run; wall jump with a flip.
 
-## Welt
+## World
 
-- **Natürliche Insel** (ca. 800 m Durchmesser) mit unregelmäßiger Küstenlinie, Sandstrand rundherum, Uferpromenade
-  mit Laternen und einem Meer, das den Abendhimmel spiegelt, in der Sonne glitzert und am Ufer schäumt.
-- **Stadtviertel:** Hochhaus-Zentrum, Midtown, Wohnviertel und Uferbebauung mit eigenen Farbpaletten (Glas, Büro,
-  Backstein, warme und pastellige Fassaden).
-- **Gebäudeformen:** Türme, gestufte Hochhäuser, Zwillingstürme mit Skybridge, Turmspitzen, Scheibenhäuser,
-  L-Formen, Reihenhäuser und Blöcke mit Innenhof; dazu Dachaufbauten, Wassertürme und Antennen.
-- **Grün:** Zentralpark mit Teich, kleinere Parks und Plätze, Straßenbäume und Kirschbäume.
+- **Natural island** (about 800 m across) with an irregular coastline, a sandy beach all around, a waterfront
+  promenade with street lamps, and a sea that mirrors the evening sky, sparkles in the sun and foams at the shore.
+- **Districts:** high-rise downtown, midtown, a residential quarter and waterfront buildings, each with its own color
+  palette (glass, office, brick, warm and pastel facades).
+- **Building shapes:** towers, stepped high-rises, twin towers with a skybridge, spires, slab blocks, L-shapes, row
+  houses and courtyard blocks; plus rooftop structures, water towers and antennas.
+- **Greenery:** a central park with a pond, smaller parks and squares, street trees and cherry trees.
 
-## Figur & Animationen
+## Character & animation
 
-- Kaia ist aus **Signed Distance Fields** modelliert (`src/sdf.js`) und per Marching Cubes in weiche, runde Meshes
-  umgewandelt: Jacke als Stoffschale mit Falten, Kapuze, Ärmeln und Bündchen, Haare aus verschmolzenen Strähnen
-  (Pony, Gesichtssträhnen, abstehende Spitzen, Zopf), Hände mit Fingern, klobige Sneaker.
-- Dunkelblaue, wuschelige Kurzhaare mit roter Spange, türkise Augen, übergroße schwarze Jacke mit hellgrauer Kapuze
-  und orangen Ärmelfeldern, Print-Shirt, roter Gürtel, grauer asymmetrischer Faltenrock mit Karo-Lage, links
-  Overknee-Strumpf, rechts kurze Socke, roter Halbfinger-Handschuh. Farben zentral in `LOOK` (`src/character.js`).
-- Arme, Beine, Oberkörper, Jacke und Haare sind **gehäutet** (SkinnedMesh) – weiche Gelenke statt Einzelteile.
-- Keyframe-Clips (`src/animations.js`), per Catmull-Rom-Spline geglättet, mit eigener Gewichtssteuerung überblendet:
-  Idle, Gehen, Joggen und Sprint (phasensynchron gemischt, Schrittlänge = Tempo × Zyklusdauer, dadurch keine
-  rutschenden Füße), Wende, Abbremsen, Sprung, Steigen, Gipfel, Fallen, schnelles Fallen, Landung,
-  Superhelden-Landung, Rutschen, Schwingen, Winde, Gas-Schub, Dash, Gleiten, Wallrun, Salto.
-- Prozedurale Ebene: Oberkörper und Kopf drehen sich leicht in die Kurve voraus, Kopf schaut in Zielrichtung (nur am
-  Boden), nachschwingende Haare, flatternder Jackensaum, Rockhälften folgen den Beinen.
+- Kaia is modeled from **signed distance fields** (`src/sdf.js`) and converted into soft, rounded meshes via marching
+  cubes: a jacket as a fabric shell with folds, hood, sleeves and cuffs, hair made of merged strands (bangs, face
+  strands, spiky tips, ponytail), hands with fingers, chunky sneakers.
+- Dark blue, fluffy short hair with a red clip, turquoise eyes, an oversized black jacket with a light gray hood and
+  orange sleeve panels, a print shirt, a red belt, a gray asymmetric pleated skirt with a plaid layer, an over-knee
+  stocking on the left, a short sock on the right, a red fingerless glove. Colors are defined in one place in `LOOK`
+  (`src/character.js`).
+- Arms, legs, torso, jacket and hair are **skinned** (SkinnedMesh) – smooth joints instead of separate parts.
+- Keyframe clips (`src/animations.js`), smoothed with Catmull-Rom splines and blended with a custom weighting system:
+  idle, walk, jog and sprint (blended in phase sync, stride length = speed × cycle duration, so no foot sliding),
+  turnaround, braking, jump, rising, apex, falling, fast falling, landing, superhero landing, sliding, swinging,
+  winch, gas boost, dash, gliding, wall run, flip.
+- Procedural layer: torso and head lean slightly into turns, the head looks toward the aim direction (on the ground
+  only), hair swings along, the jacket hem flutters, the skirt halves follow the legs.
 
 ## Look
 
-- Abendhimmel in Orange/Lila mit Wolken, Sternen und tief stehender Sonne; Dunst folgt der Himmelsfarbe, Smog in den
-  Straßenschluchten.
-- Cel-Shading, Tuschelinien aus dem Tiefenpuffer, Bloom, Outline-Hülle um die Figur.
-- Neon-Schilder, Werbetafeln, Leuchtkanten, Flugwarnlichter, Straßenlaternen mit Lichtkegeln, aufsteigende Funken.
+- Orange/purple evening sky with clouds, stars and a low sun; haze follows the sky color, smog in the street canyons.
+- Cel shading, ink lines from the depth buffer, bloom, outline shell around the character.
+- Neon signs, billboards, glowing edges, aircraft warning lights, street lamps with light cones, rising sparks.
 
 ## Tuning
 
-Alle Werte stehen in `src/config.js` und lassen sich im Spiel mit **G** live verändern – Physik, Bewegung
-(Geh-/Sprinttempo, Trägheit, Drehen, Wende), Dash & Gas-Schub, Gleiter (Anstellwinkel, Auftrieb, Widerstand,
-Querneigung), Seil, Gas, Wallrun, Kamera, Grafik und Stadt-Seed.
+All values live in `src/config.js` and can be changed live in-game with **G** – physics, movement (walk/sprint speed,
+inertia, turning, turnaround), dash & gas boost, glider (angle of attack, lift, drag, banking), rope, gas, wall run,
+camera, graphics and city seed.
 
-## Aufbau
+## Structure
 
-| Datei | Inhalt |
+| File | Contents |
 |---|---|
-| `src/main.js` | Spielschleife (feste 120-Hz-Physik, interpoliertes Rendering), Zielen, Events, Effekte |
-| `src/player.js` | Gehen/Sprinten/Wende, Dash, Gas-Schub, Gleiter-Aerodynamik, elastische Seile, Kollision, Wallrun |
-| `src/character.js` | Figurenmodell, Skinning, Gleiter-Flügel, Animations-Gewichtung, prozedurale Ebene |
-| `src/sdf.js` | Distanzfelder (Kegel, Ellipsoide, Tori, weiche Vereinigung), Marching Cubes, Bemalen, Skinning-Gewichte |
-| `src/charGeo.js` | Geometrie: gehäutete Röhren, Faltenrock, Kopf |
-| `src/animations.js` | Posen und Keyframe-Clips |
-| `src/hooks.js` | Haken-Projektil, Anker, Seil-Darstellung |
-| `src/city.js` | Insel- und Stadtgenerator, Viertel, Gebäudeformen, Parks, Bäume, Raster-Index, Raycasts, Fassaden-Shader |
-| `src/world.js`, `src/palette.js` | Himmel, Dunst, Licht, Boden (Straßen, Parks, Strand), Meer, Farbpalette |
-| `src/post.js`, `src/toon.js` | Tuschelinien, Bloom, Tonemapping, FXAA · Toon- und Outline-Materialien |
-| `src/camera.js` | Schulterkamera mit Kollision, Glättung, Neigung |
-| `src/effects.js`, `hud.js`, `audio.js`, `tuning.js`, `input.js` | Partikel/Funken/Speedlines, HUD, Sound, Tuning, Eingabe |
+| `src/main.js` | Game loop (fixed 120 Hz physics, interpolated rendering), aiming, events, effects |
+| `src/player.js` | Walk/sprint/turnaround, dash, gas boost, glider aerodynamics, elastic ropes, collision, wall run |
+| `src/character.js` | Character model, skinning, glider wings, animation weighting, procedural layer |
+| `src/sdf.js` | Distance fields (cones, ellipsoids, tori, smooth union), marching cubes, painting, skinning weights |
+| `src/charGeo.js` | Geometry: skinned tubes, pleated skirt, head |
+| `src/animations.js` | Poses and keyframe clips |
+| `src/hooks.js` | Hook projectile, anchor, rope rendering |
+| `src/city.js` | Island and city generator, districts, building shapes, parks, trees, grid index, raycasts, facade shader |
+| `src/world.js`, `src/palette.js` | Sky, haze, lighting, ground (streets, parks, beach), sea, color palette |
+| `src/post.js`, `src/toon.js` | Ink lines, bloom, tone mapping, FXAA · toon and outline materials |
+| `src/camera.js` | Shoulder camera with collision, smoothing, tilt |
+| `src/effects.js`, `hud.js`, `audio.js`, `tuning.js`, `input.js` | Particles/sparks/speed lines, HUD, sound, tuning, input |
 
-Debug: `http://localhost:8080/?debug` läuft ohne Pointer-Lock und Vollbild; `window.game` ist in der Konsole verfügbar.
+Debug: `http://localhost:8080/?debug` runs without pointer lock and fullscreen; `window.game` is available in the
+console.
