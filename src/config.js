@@ -16,17 +16,19 @@ export const CONFIG = {
     swingAccel: 13,       // WASD-Einfluss quer zum Seil, während ein Haken hängt (Schwung "pumpen")
   },
   locomotion: {
-    walkSpeed: 3.4,       // normales Gehen
-    sprintSpeed: 10.5,    // Shift halten
-    walkAccel: 7,         // träge Beschleunigung = spürbares Gewicht
-    sprintAccel: 9,
-    decel: 11,
-    sprintStopDecel: 15,
-    turnWalk: 7.5,        // rad/s – Drehgeschwindigkeit beim Gehen
-    turnSprint: 3.4,      // beim Sprinten weite Bögen statt Haken schlagen
-    chargeTime: 1.1,      // Sekunden bis zum voll aufgeladenen Sprung
-    chargeMin: 9,
-    chargeMax: 28,        // ca. 25 m hoch
+    walkSpeed: 2.2,       // normales Gehen
+    sprintSpeed: 9.0,     // Shift halten (Jog-Tempo wird beim Beschleunigen durchlaufen)
+    walkAccel: 8,
+    sprintAccel: 7.5,     // spürbares Gewicht beim Anlaufen
+    decel: 10,
+    runStopDecel: 12,     // Anhalten aus dem Lauf (zwei Bremsschritte)
+    turnRate: 14,         // rad/s im Stand, sinkt mit dem Tempo
+    turnFalloff: 0.15,    // → ca. 10 rad/s beim Gehen, 6 rad/s im Sprint
+    facingRate: 16,       // wie schnell der Körper der Laufrichtung folgt
+    pivotAngle: 2.3,      // ab ca. 130° Richtungswechsel: Wende statt Bogen
+    pivotMinSpeed: 3.8,
+    pivotTime: 0.46,
+    pivotDecel: 28,
   },
   dash: {
     speed: 22,            // zusätzliche Geschwindigkeit in Blickrichtung
@@ -37,16 +39,23 @@ export const CONFIG = {
     cost: 16,
   },
   glide: {
-    pitchBase: -0.17,     // leichter Sinkflug (rad)
-    pitchDive: -0.75,     // W: steiler, schneller
-    pitchFlare: 0.24,     // S: abfangen, bremsen
-    pitchRate: 1.6,
-    drag: 0.008,          // Gleichgewicht ca. 19 m/s bei 3 m/s Sinken
-    turnRate: 1.7,
-    maxBank: 0.6,
-    stallSpeed: 8,
-    minSpeed: 5,
-    startSpeed: 12,
+    deployTime: 0.35,     // Flügel öffnen sich weich
+    alphaBase: 0.22,      // Anstellwinkel im ruhigen Gleitflug (rad)
+    pitchGain: 0.6,       // Blick über/unter die Flugbahn ändert den Anstellwinkel
+    alphaDive: 0.15,      // W: flacher anstellen = sinken, schneller werden
+    alphaFlare: 0.25,     // S: abfangen
+    alphaMax: 0.65,
+    alphaStall: 0.5,      // darüber reißt die Strömung ab
+    alphaRate: 4,
+    clAlpha: 4.2,
+    cd0: 0.09,
+    cdk: 0.11,
+    kLift: 0.048,         // ergibt ca. 19 m/s Gleiten bei 3,7 m/s Sinken (Gleitzahl ~5)
+    kDrag: 0.048,
+    maxLift: 45,
+    bankGain: 1.3,
+    maxBank: 1.0,
+    bankRate: 3.5,
   },
   hook: {
     range: 140,
@@ -65,6 +74,9 @@ export const CONFIG = {
   },
   gas: {
     max: 100,
+    boostAccel: 30,       // Shift in der Luft halten
+    boostCost: 20,
+    boostDelay: 0.22,     // kürzer gedrückt = nur Dash
     reelCost: 4,
     regen: 10,
     groundRegen: 30,
@@ -96,7 +108,6 @@ export const CONFIG = {
     height: 1.0,
     sensitivity: 0.0022,
     invertY: false,
-    bob: 1,               // Kamera-Wippen beim Gehen/Sprinten
   },
   world: {
     seed: 1337,

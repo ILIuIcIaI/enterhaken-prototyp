@@ -41,7 +41,7 @@ class Game {
 
     this.city = new City(CONFIG.world.seed);
     this.scene.add(this.city.mesh, this.city.decor);
-    this.world = createWorld(renderer, this.scene, this.city.layout);
+    this.world = createWorld(renderer, this.scene, this.city);
     this.post = new Post(renderer, this.scene, this.camera);
     this.embers = new Embers(this.scene);
     this.charEvents = [];
@@ -236,10 +236,11 @@ class Game {
       ctl.move.x = (input.isDown('KeyD') ? 1 : 0) - (input.isDown('KeyA') ? 1 : 0);
       ctl.reel = ctl.jumpHeld = input.isDown('Space');
       ctl.sprint = input.isDown('ShiftLeft') || input.isDown('ShiftRight');
-      // Tastendrücke gelten genau einen Physikschritt lang
-      ctl.jumpPressed = input.wasPressed('Space');
-      ctl.dashPressed = input.wasPressed('ShiftLeft') || input.wasPressed('ShiftRight');
-      ctl.glideToggle = input.wasPressed('ControlLeft') || input.wasPressed('ControlRight');
+      // Tastendrücke gelten genau einen Physikschritt lang; bleiben bis zum nächsten Schritt
+      // gespeichert, damit sie bei hoher Bildrate (Frames ohne Physikschritt) nicht verloren gehen
+      ctl.jumpPressed ||= input.wasPressed('Space');
+      ctl.dashPressed ||= input.wasPressed('ShiftLeft') || input.wasPressed('ShiftRight');
+      ctl.glideToggle ||= input.wasPressed('ControlLeft') || input.wasPressed('ControlRight');
 
       const scale = CONFIG.world.timeScale * (this.slowmo ? 0.25 : 1);
       this.acc += dt * scale;
@@ -264,9 +265,7 @@ class Game {
     this.rig.update(dt, this.renderPos, player, {
       moving: !this.paused,
       swinging: swinging && player.state === 'air',
-      bob: { phase: c.phase, amp: (0.022 * (c.locoMove - c.locoSprint) + 0.055 * c.locoSprint) * CONFIG.camera.bob },
       sprinting: player.state === 'ground' && player.sprinting,
-      charge: player.charging ? player.charge : 0,
       bank: player.gliding ? player.glide.bank : 0,
     });
     this.updateAim();
@@ -285,7 +284,7 @@ class Game {
     this.audio.update(this.paused ? 0 : player.vel.length(), {
       reeling: !this.paused && player.reeling,
       gliding: !this.paused && player.gliding,
-      charge: !this.paused && player.charging ? player.charge : -1,
+      boosting: !this.paused && player.boosting,
     });
 
     this.applyGraphics();
@@ -313,10 +312,9 @@ class Game {
         this.rig.addShake(Math.min(0.5, e.strength / 80));
       } else if (e.type === 'walljump' || e.type === 'jump') {
         this.audio.jump();
-      } else if (e.type === 'superjump') {
-        this.audio.superJump(e.strength);
-        this.rig.addShake(0.25 + e.strength * 0.4);
-        this.dustRing(p.pos, 14 + e.strength * 26);
+      } else if (e.type === 'pivot') {
+        this.audio.step(1);
+        this.dustRing(p.pos, 8);
       } else if (e.type === 'dash') {
         this.audio.dash();
         this.rig.addShake(0.18);
@@ -378,13 +376,7 @@ class Game {
     const p = this.player;
     if (p.reeling) this.gasBurst(Math.max(1, Math.round(25 * dt)), 0.35);
     if (p.dashing) this.gasBurst(Math.max(1, Math.round(70 * dt)), 0.7);
-    // Aufladen: Staub kreist um die Füße und zieht sich zusammen
-    if (p.charging && Math.random() < dt * (20 + 60 * p.charge)) {
-      const a = Math.random() * Math.PI * 2, r = 1.4 - p.charge * 0.6;
-      _w.set(this.renderPos.x + Math.cos(a) * r, this.renderPos.y - CONFIG.player.halfHeight + 0.05, this.renderPos.z + Math.sin(a) * r);
-      _v.set(-Math.cos(a), 0.4 + p.charge * 1.5, -Math.sin(a)).multiplyScalar(1.5 + p.charge * 2);
-      this.particles.emit(_w, _v, { life: 0.6, size: 0.18 + p.charge * 0.15, alpha: 0.35, color: [0.75, 0.6, 0.85], drag: 1.5, grow: 1 });
-    }
+    if (p.boosting) this.gasBurst(Math.max(1, Math.round(60 * dt)), 0.6);
     // Gleiter: Luftwirbel an den Flügelspitzen
     if (p.gliding && Math.random() < dt * 30) {
       const J = this.character.joints;
@@ -438,14 +430,17 @@ class Game {
       _u.copy(UP);
       _f.set(-Math.sin(p.facingYaw), 0, -Math.cos(p.facingYaw));
       rate = 16;
-    } else if ((p.gliding || p.dashing) && !attached) {
-      // Gleiten / Dash: Körper liegt flach in Flugrichtung, Kopf voraus, Bauch nach unten
+    } else if (p.gliding && !attached) {
+      // Gleiten: Kopf voraus in Flugrichtung, Bauch gegen den Auftrieb – die Querneigung kommt aus der Physik
+      _u.copy(v.lengthSq() > 1 ? v : this.rig.forward).normalize();
+      _f.copy(p.glide.lift).negate().addScaledVector(_u, p.glide.lift.dot(_u)).normalize();
+      rate = 8;
+    } else if ((p.dashing || p.boosting) && !attached) {
+      // Dash / Gas-Schub: Körper legt sich flach in Flugrichtung, Bauch nach unten
       _v.copy(v.lengthSq() > 1 ? v : this.rig.forward).normalize();
-      const flat = p.gliding ? 0.95 : 0.8;
-      _u.copy(UP).multiplyScalar(1 - flat).addScaledVector(_v, flat).normalize();
+      _u.copy(UP).multiplyScalar(0.2).addScaledVector(_v, 0.8).normalize();
       _f.set(0, -1, 0).addScaledVector(_u, _u.y).normalize();
-      if (p.gliding) _f.applyAxisAngle(_u, p.glide.bank);
-      rate = p.gliding ? 7 : 12;
+      rate = 10;
     } else {
       if (hs > 1.5) _f.set(v.x / hs, 0, v.z / hs);
       else _f.set(this.rig.forward.x, 0, this.rig.forward.z).normalize();
@@ -462,11 +457,8 @@ class Game {
       swinging: attached && p.state === 'air',
       reeling: p.reeling,
       gliding: p.gliding,
-      dashing: p.dashing,
-      charging: p.charging,
-      charge: p.charge,
+      boosting: p.boosting && !p.gliding,
       turnRate: p.state === 'ground' ? p.turnRate : 0,
-      accel: p.state === 'ground' ? p.accel : 0,
       events: this.charEvents,
       lookDir: this.rig.forward,
     });

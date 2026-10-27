@@ -1,4 +1,4 @@
-// Prozeduraler Sound mit der WebAudio-API: Fahrtwind, Seilwinde, Aufladen, Gleiten und kurze Effekte.
+// Prozeduraler Sound mit der WebAudio-API: Fahrtwind, Gas, Seilwinde, Gleiten und kurze Effekte.
 export class AudioFX {
   constructor() {
     this.ctx = null;
@@ -35,13 +35,7 @@ export class AudioFX {
     this.reelOsc.connect(reelFilter).connect(this.reelGain).connect(this.master);
     this.reelOsc.start();
 
-    this.chargeOsc = ctx.createOscillator();
-    this.chargeOsc.type = 'triangle';
-    this.chargeOsc.frequency.value = 110;
-    this.chargeGain = ctx.createGain();
-    this.chargeGain.gain.value = 0;
-    this.chargeOsc.connect(this.chargeGain).connect(this.master);
-    this.chargeOsc.start();
+    [this.gasFilter, this.gasGain] = this.loop('bandpass', 1700, 0.9);
   }
 
   loop(type, freq, q) {
@@ -59,8 +53,8 @@ export class AudioFX {
     return [filter, gain];
   }
 
-  // opts: { reeling, gliding, charge (-1 = nicht aufladen) }
-  update(speed, { reeling = false, gliding = false, charge = -1 } = {}) {
+  // opts: { reeling, gliding, boosting }
+  update(speed, { reeling = false, gliding = false, boosting = false } = {}) {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     const w = Math.min(1, Math.max(0, (speed - 4) / 60));
@@ -70,8 +64,7 @@ export class AudioFX {
     this.glideFilter.frequency.setTargetAtTime(500 + w * 1500, t, 0.15);
     this.reelGain.gain.setTargetAtTime(reeling ? 0.05 : 0, t, 0.05);
     this.reelOsc.frequency.setTargetAtTime(70 + Math.min(speed, 60) * 3, t, 0.1);
-    this.chargeGain.gain.setTargetAtTime(charge >= 0 ? 0.03 + charge * 0.06 : 0, t, 0.04);
-    if (charge >= 0) this.chargeOsc.frequency.setTargetAtTime(110 + charge * 330, t, 0.05);
+    this.gasGain.gain.setTargetAtTime(boosting ? 0.22 : 0, t, 0.04);
   }
 
   burst(type, freq, dur, gain, q = 1) {
@@ -134,12 +127,6 @@ export class AudioFX {
     const s = Math.min(1, strength / 35);
     this.tone('sine', 110, 40, 0.22, 0.2 + 0.4 * s);
     this.burst('lowpass', 500, 0.18, 0.2 + 0.3 * s);
-  }
-
-  superJump(charge) {
-    this.tone('sine', 90, 35, 0.35, 0.35 + charge * 0.3);
-    this.burst('lowpass', 700, 0.4, 0.3 + charge * 0.3);
-    this.burst('highpass', 1800, 0.25, 0.12 + charge * 0.15);
   }
 
   dash() {

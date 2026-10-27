@@ -3,6 +3,48 @@
 Alle nennenswerten Änderungen an diesem Projekt. Format angelehnt an
 [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionierung nach [SemVer](https://semver.org/lang/de/).
 
+## [0.4.0] – 2026-10-27
+
+Runde, detailliertere Kaia, komplett neues Gehen und Sprinten, Gleiter mit echtem Flugmodell und eine natürliche
+Insel mit Strand, Parks und abwechslungsreicherer Stadt. Basis der Mechaniken ist wieder v0.2.0.
+
+### Hinzugefügt
+- **Runde Figur aus Distanzfeldern:** Jacke, Haare, Hände und Schuhe werden aus Signed Distance Fields modelliert
+  und per Marching Cubes zu weichen Meshes – keine kantigen Einzelteile mehr. Jacke als Stoffschale mit Falten,
+  Kapuze, Ärmeln, Bündchen und vorne offener Front; Haare als zu einer Masse verschmolzene Strähnen mit Pony,
+  Gesichtssträhnen, Spitzen und Zopf, Glanzlicht in Strähnen aufgelöst; Hände mit Fingern; runde Sneaker.
+  Die Haare sind ebenfalls gehäutet und schwingen nach.
+- **Natürliche Insel** mit unregelmäßiger Küstenlinie, Sandstrand rundherum, Uferpromenade mit Laternen und Meer
+  mit Himmelsspiegelung, Sonnenglitzern und Schaumkante.
+- **Parks und Grün:** Zentralpark mit Teich, kleinere Parks, Plätze, Straßenbäume und Kirschbäume.
+- **Abwechslungsreichere Stadt:** Viertel (Hochhaus-Zentrum, Midtown, Wohnviertel, Uferbebauung) mit eigenen
+  Farbpaletten; neue Gebäudeformen (gestufte Hochhäuser, Zwillingstürme mit Skybridge, Turmspitzen, Scheibenhäuser,
+  L-Formen, Reihenhäuser, Blöcke mit Innenhof); Dachaufbauten, Wassertürme, Antennen.
+- **Wende:** Bei scharfem Richtungswechsel aus vollem Lauf bremst Kaia ab, dreht sich um und stößt sich in die neue
+  Richtung ab – mit eigener Animation und Staub.
+- **Joggen** als Zwischenstufe zwischen Gehen und Sprint.
+- **Gas-Schub** aus v0.2.0 ist zurück: Shift in der Luft halten. Antippen bleibt der Dash.
+
+### Geändert
+- **Gehen und Sprinten von Grund auf neu:** Laufrichtung und Körperausrichtung sind getrennt, Kaia dreht sich in die
+  neue Richtung, statt mit dem ganzen Körper zu kippen. Die Drehrate sinkt mit dem Tempo (weite Bögen im Sprint),
+  Oberkörper und Kopf drehen sich leicht in die Kurve voraus. Weicheres Anfahren und Abbremsen, das Gewicht bleibt.
+- **Realistischere Laufanimationen:** neue Posen für Gehen, Joggen und Sprint; die Schrittlänge folgt exakt dem
+  Tempo (keine rutschenden Füße), die Gangarten werden phasensynchron überblendet.
+- **Gleiter-Physik neu:** Auftrieb senkrecht zur Flugbahn abhängig vom Anstellwinkel, Luftwiderstand und
+  Strömungsabriss; Kurven mit Querneigung (koordiniert, ohne Durchsacken); Sturzflug baut Tempo auf, Abfangen setzt
+  es in Höhe um. Die Kamera neigt sich in Kurven mit.
+- Mechaniken (Schwingen, Wallrun, Gas) basieren wieder auf v0.2.0.
+
+### Entfernt
+- Aufladesprung (Supersprung aus dem Stand).
+- Die Mauer am Horizont.
+- Kamera-Wippen beim Gehen.
+
+### Behoben
+- Tastendrücke für Springen, Dash und Gleiter gingen bei hoher Bildwiederholrate verloren, wenn ein Frame keinen
+  Physikschritt enthielt.
+
 ## [0.3.0] – 2026-10-26
 
 Detailliertes Modell von Kaia, gewichtige Bewegung, Aufladesprung, Luft-Dash und Gleiter.
@@ -100,6 +142,7 @@ Erster spielbarer Prototyp: Sandbox ohne Level oder Ziel, um Schwingen und Wallr
 - **HUD und Werkzeuge:** Fadenkreuz mit Reichweitenanzeige, Tempo, Höhe, Gas und Zustand; Tuning-Menü (G),
   Zeitlupe (T), Screenshot (P); Startskript mit lokalem PowerShell-Server.
 
+[0.4.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.1.0

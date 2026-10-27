@@ -1,4 +1,4 @@
-const STATE_LABEL = { ground: 'BODEN', air: 'LUFT', wallrun: 'WALLRUN', swing: 'SCHWINGEN', glide: 'GLEITEN', sprint: 'SPRINT', charge: 'AUFLADEN' };
+const STATE_LABEL = { ground: 'BODEN', air: 'LUFT', wallrun: 'WALLRUN', swing: 'SCHWINGEN', glide: 'GLEITEN', sprint: 'SPRINT' };
 
 // Dünne Schicht über dem DOM-HUD; schreibt nur, wenn sich Werte ändern.
 export class HUD {
@@ -7,7 +7,7 @@ export class HUD {
     this.el = {
       crosshair: $('crosshair'), dist: $('aimDist'), hookL: $('hookL'), hookR: $('hookR'),
       speed: $('speed'), alt: $('alt'), state: $('state'), gas: $('gasFill'), gasWrap: $('gasWrap'),
-      vignette: $('vignette'), slowmo: $('slowmo'), charge: $('charge'),
+      vignette: $('vignette'), slowmo: $('slowmo'),
     };
     this.cache = {};
   }
@@ -27,12 +27,7 @@ export class HUD {
     const swinging = hooks.some((h) => h.state === 'attached');
     let st = player.state;
     if (st === 'air') st = player.gliding ? 'glide' : swinging ? 'swing' : 'air';
-    else if (st === 'ground') st = player.charging ? 'charge' : player.sprinting ? 'sprint' : 'ground';
-    this.set('charge', player.charging ? Math.round(player.charge * 40) : -1, (v) => {
-      e.charge.classList.toggle('hidden', v < 0);
-      e.charge.classList.toggle('full', v >= 40);
-      e.charge.style.setProperty('--p', `${Math.max(0, v) * 2.5}%`);
-    });
+    else if (st === 'ground') st = player.sprinting ? 'sprint' : 'ground';
     this.set('state', st, (v) => {
       e.state.textContent = STATE_LABEL[v];
       e.state.className = v;

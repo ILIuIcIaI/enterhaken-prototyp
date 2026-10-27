@@ -14,29 +14,34 @@ export function createTuning(game) {
   ph.add(CONFIG.player, 'swingAccel', 0, 40, 0.5).name('Schwung-Steuerung');
 
   const lo = gui.addFolder('Bewegung');
-  lo.add(CONFIG.locomotion, 'walkSpeed', 1, 8, 0.1).name('Gehtempo');
-  lo.add(CONFIG.locomotion, 'sprintSpeed', 4, 25, 0.5).name('Sprinttempo');
-  lo.add(CONFIG.locomotion, 'walkAccel', 1, 40, 0.5).name('Beschl. Gehen');
-  lo.add(CONFIG.locomotion, 'sprintAccel', 1, 40, 0.5).name('Beschl. Sprint');
-  lo.add(CONFIG.locomotion, 'decel', 1, 40, 0.5).name('Abbremsen');
-  lo.add(CONFIG.locomotion, 'turnWalk', 1, 20, 0.5).name('Drehen Gehen');
-  lo.add(CONFIG.locomotion, 'turnSprint', 0.5, 15, 0.1).name('Drehen Sprint');
-  lo.add(CONFIG.locomotion, 'chargeTime', 0.2, 3, 0.05).name('Aufladezeit (s)');
-  lo.add(CONFIG.locomotion, 'chargeMax', 10, 50, 0.5).name('Supersprung max.');
+  lo.add(CONFIG.locomotion, 'walkSpeed', 1, 6, 0.1).name('Gehtempo');
+  lo.add(CONFIG.locomotion, 'sprintSpeed', 4, 20, 0.5).name('Sprinttempo');
+  lo.add(CONFIG.locomotion, 'walkAccel', 1, 30, 0.5).name('Beschl. Gehen');
+  lo.add(CONFIG.locomotion, 'sprintAccel', 1, 30, 0.5).name('Beschl. Sprint');
+  lo.add(CONFIG.locomotion, 'decel', 1, 30, 0.5).name('Abbremsen');
+  lo.add(CONFIG.locomotion, 'turnRate', 2, 30, 0.5).name('Drehrate');
+  lo.add(CONFIG.locomotion, 'turnFalloff', 0, 0.5, 0.01).name('Drehrate fällt mit Tempo');
+  lo.add(CONFIG.locomotion, 'facingRate', 2, 40, 0.5).name('Körper folgt');
+  lo.add(CONFIG.locomotion, 'pivotAngle', 1.2, 3.1, 0.05).name('Wende ab (rad)');
 
-  const da = gui.addFolder('Dash');
+  const da = gui.addFolder('Dash & Gas-Schub');
   da.add(CONFIG.dash, 'speed', 5, 60, 1).name('Dash-Tempo');
-  da.add(CONFIG.dash, 'duration', 0.05, 1, 0.01).name('Dauer (s)');
+  da.add(CONFIG.dash, 'duration', 0.05, 1, 0.01).name('Dash-Dauer (s)');
   da.add(CONFIG.dash, 'cooldown', 0, 2, 0.05).name('Abklingzeit (s)');
-  da.add(CONFIG.dash, 'cost', 0, 50, 1).name('Gasverbrauch');
+  da.add(CONFIG.dash, 'cost', 0, 50, 1).name('Gas pro Dash');
+  da.add(CONFIG.gas, 'boostAccel', 0, 100, 1).name('Gas-Schub');
+  da.add(CONFIG.gas, 'boostCost', 0, 60, 1).name('Verbrauch Schub');
+  da.add(CONFIG.gas, 'boostDelay', 0, 1, 0.01).name('Halten ab (s)');
 
   const gl = gui.addFolder('Gleiter');
-  gl.add(CONFIG.glide, 'pitchBase', -0.6, 0.1, 0.01).name('Grund-Sinkwinkel');
-  gl.add(CONFIG.glide, 'pitchDive', -1.4, -0.2, 0.01).name('Sturzflug (W)');
-  gl.add(CONFIG.glide, 'pitchFlare', 0, 0.6, 0.01).name('Abfangen (S)');
-  gl.add(CONFIG.glide, 'drag', 0.001, 0.03, 0.0005).name('Luftwiderstand');
-  gl.add(CONFIG.glide, 'turnRate', 0.3, 4, 0.05).name('Wendigkeit');
-  gl.add(CONFIG.glide, 'stallSpeed', 0, 20, 0.5).name('Strömungsabriss');
+  gl.add(CONFIG.glide, 'alphaBase', 0, 0.5, 0.01).name('Anstellwinkel');
+  gl.add(CONFIG.glide, 'pitchGain', 0, 2, 0.05).name('Blick → Steigen/Sinken');
+  gl.add(CONFIG.glide, 'alphaDive', 0, 0.4, 0.01).name('Sturzflug (W)');
+  gl.add(CONFIG.glide, 'alphaFlare', 0, 0.5, 0.01).name('Abfangen (S)');
+  gl.add(CONFIG.glide, 'kLift', 0.01, 0.12, 0.002).name('Auftrieb');
+  gl.add(CONFIG.glide, 'kDrag', 0.01, 0.12, 0.002).name('Widerstand');
+  gl.add(CONFIG.glide, 'bankGain', 0.2, 3, 0.05).name('Kurvenfreude');
+  gl.add(CONFIG.glide, 'maxBank', 0.2, 1.4, 0.05).name('Max. Querneigung');
 
   const hk = gui.addFolder('Enterhaken');
   hk.add(CONFIG.hook, 'range', 30, 400, 5).name('Reichweite');
@@ -74,7 +79,6 @@ export function createTuning(game) {
   cam.add(CONFIG.camera, 'distance', 1.5, 15, 0.1).name('Abstand');
   cam.add(CONFIG.camera, 'sensitivity', 0.0005, 0.006, 0.0001).name('Mausempfindl.');
   cam.add(CONFIG.camera, 'invertY').name('Y invertieren');
-  cam.add(CONFIG.camera, 'bob', 0, 2, 0.05).name('Kamera-Wippen');
 
   const gr = gui.addFolder('Grafik');
   gr.add(CONFIG.graphics, 'ink', 0, 1.5, 0.05).name('Tuschelinien');

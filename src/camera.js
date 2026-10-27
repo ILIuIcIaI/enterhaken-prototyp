@@ -56,8 +56,8 @@ export class CameraRig {
     this.fovKick += deg;
   }
 
-  // opts: { moving, swinging, bob: {phase, amp}, sprinting, charge, bank }
-  update(dt, pos, player, { moving = true, swinging = false, bob = null, sprinting = false, charge = 0, bank = 0 } = {}) {
+  // opts: { moving, swinging, sprinting, bank }
+  update(dt, pos, player, { moving = true, swinging = false, sprinting = false, bank = 0 } = {}) {
     const C = CONFIG.camera;
     const speed = player.vel.length();
     const sf = Math.min(1, Math.max(0, (speed - 12) / 50));
@@ -80,20 +80,15 @@ export class CameraRig {
     }
 
     this.fovKick *= Math.exp(-5 * dt);
-    const targetFov = C.fov + C.fovSpeedBoost * sf + (sprinting ? 5 : 0) - charge * 9 + this.fovKick;
+    const targetFov = C.fov + C.fovSpeedBoost * sf + (sprinting ? 4 : 0) + this.fovKick;
     this.fov += (targetFov - this.fov) * (1 - Math.exp(-6 * dt));
     if (Math.abs(this.camera.fov - this.fov) > 0.01) {
       this.camera.fov = this.fov;
       this.camera.updateProjectionMatrix();
     }
 
-    // Schulterversatz, ohne in Wände zu ragen; Wippen im Schrittrhythmus für spürbares Gewicht
-    _head.set(pos.x, pos.y + C.height - charge * 0.35, pos.z);
-    if (bob && bob.amp > 0.001) {
-      const ph = bob.phase * Math.PI * 2;
-      _head.y -= bob.amp * (1 - Math.cos(ph * 2)) * 0.5;
-      _head.addScaledVector(this.right, Math.sin(ph) * bob.amp * 0.35);
-    }
+    // Schulterversatz, ohne in Wände zu ragen
+    _head.set(pos.x, pos.y + C.height, pos.z);
     let shoulder = C.shoulder * this.shoulderSide;
     _side.copy(this.right).multiplyScalar(Math.sign(shoulder));
     const sideHit = this.city.raycast(_head, _side, Math.abs(shoulder) + 0.3);
@@ -101,7 +96,7 @@ export class CameraRig {
     this.pivot.copy(_head).addScaledVector(this.right, shoulder);
 
     // Abstand mit Kollision (sofort heran, sanft zurück)
-    const want = C.distance + C.distanceSpeedBoost * sf - charge * 0.8;
+    const want = C.distance + C.distanceSpeedBoost * sf;
     _back.copy(this.forward).negate();
     const hit = this.city.raycast(this.pivot, _back, want + 0.3, true);
     const allowed = hit ? Math.max(0.3, hit.dist - 0.3) : want;
@@ -109,7 +104,6 @@ export class CameraRig {
     else this.dist += (allowed - this.dist) * (1 - Math.exp(-5 * dt));
     this.camera.position.copy(this.pivot).addScaledVector(this.forward, -this.dist);
 
-    if (charge > 0.92) this.shake = Math.max(this.shake, 0.12);
     if (this.shake > 0) {
       const s = this.shake * this.shake * 0.35;
       this.camera.position.x += (Math.random() - 0.5) * s;
@@ -122,7 +116,6 @@ export class CameraRig {
     if (player.state === 'wallrun') targetRoll = -player.wall.n.dot(this.right) * 0.2;
     else if (player.gliding) targetRoll = bank * 0.35;
     else if (swinging) targetRoll = Math.max(-0.14, Math.min(0.14, -this.latAcc * 0.005));
-    if (bob && bob.amp > 0.001) targetRoll += Math.sin(bob.phase * Math.PI * 2) * bob.amp * 0.25;
     this.roll += (targetRoll - this.roll) * (1 - Math.exp(-6 * dt));
     this.camera.rotation.set(this.pitch, this.yaw, this.roll, 'YXZ');
   }

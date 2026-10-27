@@ -77,16 +77,6 @@ html, body {
 .hook-ind.right.flying { border-right-color: var(--fly); }
 .hook-ind.left.attached { border-left-color: var(--ok); }
 .hook-ind.right.attached { border-right-color: var(--ok); }
-#charge {
-  position: absolute;
-  width: 64px; height: 64px;
-  left: -32px; top: -32px;
-  border-radius: 50%;
-  background: conic-gradient(var(--accent) var(--p, 0%), rgba(255, 255, 255, 0.12) 0);
-  -webkit-mask: radial-gradient(circle, transparent 26px, #000 27px, #000 31px, transparent 32px);
-  mask: radial-gradient(circle, transparent 26px, #000 27px, #000 31px, transparent 32px);
-}
-#charge.full { background: var(--ok); animation: pulse 0.3s ease-in-out infinite; }
 #aimDist {
   position: absolute;
   top: 32px;
@@ -142,7 +132,6 @@ html, body {
 #state.swing { background: var(--ok); color: var(--ink); border-color: var(--ink); }
 #state.glide { background: #7ad7ff; color: var(--ink); border-color: var(--ink); }
 #state.sprint { background: var(--text); color: var(--ink); border-color: var(--accent); }
-#state.charge { background: var(--accent); color: var(--ink); border-color: var(--ink); }
 #slowmo { background: #7a5cff; border-color: var(--text); }
 
 #gasWrap { position: absolute; right: 30px; bottom: 28px; width: 220px; }

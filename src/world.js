@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { DUSK, DUSK_GLSL, SUN_DIR } from './palette.js';
-import { toonMaterial, gradientMap } from './toon.js';
+import { gradientMap } from './toon.js';
 
-// Abendhimmel (Wolken, Sterne, tiefe Sonne), richtungsabhängiger Dunst, Licht, Straßen,
-// Laternen und die Mauer am Horizont.
+// Abendhimmel (Wolken, Sterne, tiefe Sonne), richtungsabhängiger Dunst, Licht, Boden mit
+// Straßen, Parks und Strand sowie das Meer rund um die Insel.
 
 const SKY_VERT = /* glsl */ `
 varying vec3 vDir;
@@ -106,7 +106,26 @@ function installDuskFog() {
 #endif`;
 }
 
-export function createWorld(renderer, scene, layout) {
+// Küstenlinie wie in City.coastR: Grundradius mit sechs überlagerten Wellen (natürliche Inselform)
+const COAST_GLSL = /* glsl */ `
+uniform float uCoastR0;
+uniform float uCoastA[6];
+uniform float uCoastP[6];
+float coastR(vec2 w) {
+  float th = atan(w.y, w.x);
+  float r = 1.0;
+  r += uCoastA[0] * sin(1.0 * th + uCoastP[0]);
+  r += uCoastA[1] * sin(2.0 * th + uCoastP[1]);
+  r += uCoastA[2] * sin(3.0 * th + uCoastP[2]);
+  r += uCoastA[3] * sin(5.0 * th + uCoastP[3]);
+  r += uCoastA[4] * sin(7.0 * th + uCoastP[4]);
+  r += uCoastA[5] * sin(11.0 * th + uCoastP[5]);
+  return uCoastR0 * r;
+}
+float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+`;
+
+export function createWorld(renderer, scene, city) {
   installDuskFog();
 
   const skyMat = new THREE.ShaderMaterial({
@@ -121,7 +140,7 @@ export function createWorld(renderer, scene, layout) {
   sky.renderOrder = -1;
   scene.add(sky);
 
-  scene.fog = new THREE.FogExp2(new THREE.Color(DUSK.horizonAnti), 0.0016);
+  scene.fog = new THREE.FogExp2(new THREE.Color(DUSK.horizonAnti), 0.0015);
 
   const hemi = new THREE.HemisphereLight('#9568c8', '#2c1a2e', 1.5);
   scene.add(hemi);
@@ -136,16 +155,17 @@ export function createWorld(renderer, scene, layout) {
   sun.shadow.normalBias = 0.5;
   scene.add(sun, sun.target);
 
-  const ground = createGround(layout);
-  scene.add(ground);
-  scene.add(createLamps(layout));
-  scene.add(createWall(layout));
+  const time = { value: 0 };
+  const ground = createGround(city.mapUniforms, time);
+  const water = createWater(city.mapUniforms, time);
+  scene.add(ground, water);
 
   return {
-    sun, sky, ground,
-    update(focus, camera, time) {
+    sun, sky, ground, water,
+    update(focus, camera, t) {
       sky.position.copy(camera.position);
-      skyMat.uniforms.uTime.value = time;
+      skyMat.uniforms.uTime.value = t;
+      time.value = t;
       const snap = 300 / 2048;
       const fx = Math.round(focus.x / snap) * snap, fz = Math.round(focus.z / snap) * snap;
       sun.target.position.set(fx, 0, fz);
@@ -155,16 +175,11 @@ export function createWorld(renderer, scene, layout) {
   };
 }
 
-function createGround(layout) {
+// Boden: Meeresgrund → nasser Sand → Strand → Promenade → Stadtraster (Straßen, Gehwege, Parks, Plätze, Wiesen)
+function createGround(mu, time) {
   const mat = new THREE.MeshToonMaterial({ color: '#ffffff', gradientMap: gradientMap([0.45, 0.75, 1.0]) });
-  const uniforms = {
-    uPitch: { value: layout.P },
-    uBlock: { value: layout.B },
-    uOrigin: { value: layout.origin },
-    uHalf: { value: layout.half },
-  };
   mat.onBeforeCompile = (shader) => {
-    Object.assign(shader.uniforms, uniforms);
+    Object.assign(shader.uniforms, mu, { uTime: time });
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
@@ -173,36 +188,95 @@ function createGround(layout) {
 uniform float uPitch;
 uniform float uBlock;
 uniform float uOrigin;
-uniform float uHalf;
+uniform float uN;
+uniform float uTime;
+uniform sampler2D uBlockTex;
 varying vec3 vWorldP;
-float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }`)
+${COAST_GLSL}`)
       .replace('#include <color_fragment>', `#include <color_fragment>
 {
   vec2 w = vWorldP.xz;
-  vec2 lp = mod(w - vec2(uOrigin), uPitch);
-  float S = uPitch - uBlock;
-  float inX = step(lp.x, uBlock);
-  float inZ = step(lp.y, uBlock);
-  float block = inX * inZ;
-  vec3 asphalt = vec3(0.045, 0.04, 0.055) * (0.85 + 0.3 * gHash(floor(w * 0.7)));
-  vec3 walk = vec3(0.24, 0.21, 0.24) * (0.9 + 0.15 * gHash(floor(w * 0.5)));
-  vec3 c = mix(asphalt, walk, block);
-  float edge = min(min(lp.x, uBlock - lp.x), min(lp.y, uBlock - lp.y));
-  c = mix(c, vec3(0.36, 0.32, 0.34), block * (1.0 - smoothstep(0.25, 0.4, edge)));
-  float cz = abs(lp.x - (uBlock + S * 0.5));
-  float cx = abs(lp.y - (uBlock + S * 0.5));
-  float lineZ = (1.0 - inX) * inZ * (1.0 - smoothstep(0.1, 0.18, cz)) * step(0.5, fract(w.y / 6.0));
-  float lineX = (1.0 - inZ) * inX * (1.0 - smoothstep(0.1, 0.18, cx)) * step(0.5, fract(w.x / 6.0));
-  c = mix(c, vec3(0.8, 0.62, 0.25), max(lineZ, lineX));
-  // Zebrastreifen vor den Kreuzungen
-  float zx = (1.0 - inZ) * step(abs(lp.x - uBlock * 0.5), uBlock * 0.5) * (step(lp.x, 3.0) + step(uBlock - 3.0, lp.x));
-  float zz = (1.0 - inX) * step(abs(lp.y - uBlock * 0.5), uBlock * 0.5) * (step(lp.y, 3.0) + step(uBlock - 3.0, lp.y));
-  c = mix(c, vec3(0.55, 0.52, 0.55), clamp(zx * step(0.5, fract(w.y / 1.2)) + zz * step(0.5, fract(w.x / 1.2)), 0.0, 1.0) * 0.8);
-  float outside = smoothstep(uHalf + 10.0, uHalf + 40.0, max(abs(w.x), abs(w.y)));
-  c = mix(c, vec3(0.08, 0.06, 0.07) * (0.8 + 0.3 * gHash(floor(w * 0.2))), outside);
+  float d = length(w) - coastR(w);
+  vec3 c;
+  if (d > -6.0) {
+    c = mix(vec3(0.3, 0.22, 0.24), vec3(0.06, 0.05, 0.09), smoothstep(-6.0, 20.0, d));
+  } else if (d > -37.0) {
+    // Strand mit Windrippeln
+    float rip = 0.5 + 0.5 * sin(dot(w, vec2(0.7, 0.3)) * 1.7 + gHash(floor(w * 0.1)) * 6.0);
+    c = vec3(0.66, 0.5, 0.42) * (0.86 + 0.1 * rip + 0.12 * gHash(floor(w * 1.6)));
+  } else if (d > -46.0) {
+    // Uferpromenade: helle Platten mit Fugen, Bordkante zum Strand
+    vec2 tl = fract(w / 1.6);
+    float joint = step(0.92, max(tl.x, tl.y));
+    c = vec3(0.4, 0.35, 0.38) * (0.9 + 0.12 * gHash(floor(w / 1.6))) * (1.0 - joint * 0.35);
+    c = mix(c, vec3(0.5, 0.46, 0.48), smoothstep(-38.5, -37.2, d));
+  } else {
+    vec2 rel = w - vec2(uOrigin);
+    vec2 cell = floor(rel / uPitch);
+    vec2 lp = rel - cell * uPitch;
+    float type = 0.0;
+    if (cell.x >= 0.0 && cell.y >= 0.0 && cell.x < uN && cell.y < uN) type = floor(texture2D(uBlockTex, (vec2(cell.y, cell.x) + 0.5) / uN).r * 255.0 + 0.5);
+    float S = uPitch - uBlock;
+    float inX = step(lp.x, uBlock);
+    float inZ = step(lp.y, uBlock);
+    float block = inX * inZ;
+    vec3 asphalt = vec3(0.045, 0.04, 0.055) * (0.85 + 0.3 * gHash(floor(w * 0.7)));
+    vec3 walk = vec3(0.24, 0.21, 0.24) * (0.9 + 0.15 * gHash(floor(w * 0.5)));
+    c = asphalt;
+    if (block > 0.5) {
+      vec2 b = lp / uBlock;
+      if (type < 0.5) {
+        // Wiese am Stadtrand
+        c = vec3(0.15, 0.32, 0.13) * (0.8 + 0.35 * gHash(floor(w * 0.9)));
+        totalEmissiveRadiance += vec3(0.01, 0.04, 0.008);
+      } else if (type > 1.5 && type < 2.5 || type > 3.5) {
+        // Park: Rasen, diagonale Wege, Rundweg, ggf. Teich in der Mitte
+        // kräftiges Grün, damit der Rasen im violetten Abendlicht nicht grau wirkt
+        c = vec3(0.15, 0.38, 0.13) * (0.82 + 0.3 * gHash(floor(w * 1.1)));
+        float diag = min(abs(b.x - b.y), abs(b.x + b.y - 1.0)) * uBlock;
+        float ring = abs(length(b - 0.5) * uBlock - 12.5);
+        float path = min(diag, ring);
+        c = mix(c, vec3(0.42, 0.36, 0.34), 1.0 - smoothstep(1.0, 1.4, path));
+        // Eigenleuchten hält Rasen und Wasser auch im Schatten der Hochhäuser farbig
+        float lawn = smoothstep(1.0, 1.4, path);
+        if (type > 3.5) {
+          float pr = length(b - 0.5) * uBlock;
+          lawn *= smoothstep(9.0, 9.6, pr);
+          c = mix(c, vec3(0.34, 0.32, 0.34), 1.0 - smoothstep(9.0, 9.6, pr));
+          // Wasser: spiegelt den Abendhimmel (zur Mitte heller), feine Wellenringe und Glitzern
+          float ripple = 0.5 + 0.5 * sin(pr * 2.2 - uTime * 1.5);
+          float glint = step(0.93, gHash(floor(w * 2.0) + floor(uTime * 3.0))) * smoothstep(8.0, 4.0, pr);
+          vec3 water = mix(vec3(0.3, 0.16, 0.36), vec3(0.1, 0.1, 0.24), smoothstep(0.0, 8.0, pr));
+          water += vec3(0.32, 0.2, 0.3) * ripple * 0.18 + vec3(0.9, 0.6, 0.5) * glint * 0.5;
+          c = mix(c, water, 1.0 - smoothstep(8.2, 8.6, pr));
+          totalEmissiveRadiance += water * 0.3 * (1.0 - smoothstep(8.2, 8.6, pr));
+        }
+        totalEmissiveRadiance += vec3(0.012, 0.05, 0.01) * lawn;
+      } else if (type > 2.5) {
+        // Platz: großes Plattenmuster
+        vec2 tl = fract(w / 3.0);
+        c = vec3(0.33, 0.29, 0.31) * (0.9 + 0.12 * gHash(floor(w / 3.0))) * (1.0 - step(0.94, max(tl.x, tl.y)) * 0.3);
+      } else {
+        c = walk;
+      }
+      float edge = min(min(lp.x, uBlock - lp.x), min(lp.y, uBlock - lp.y));
+      c = mix(c, vec3(0.36, 0.32, 0.34), 1.0 - smoothstep(0.25, 0.4, edge));
+    }
+    float cz = abs(lp.x - (uBlock + S * 0.5));
+    float cx = abs(lp.y - (uBlock + S * 0.5));
+    float lineZ = (1.0 - inX) * inZ * (1.0 - smoothstep(0.1, 0.18, cz)) * step(0.5, fract(w.y / 6.0));
+    float lineX = (1.0 - inZ) * inX * (1.0 - smoothstep(0.1, 0.18, cx)) * step(0.5, fract(w.x / 6.0));
+    c = mix(c, vec3(0.8, 0.62, 0.25), max(lineZ, lineX));
+    float zx = (1.0 - inZ) * inX * (step(lp.x, 3.0) + step(uBlock - 3.0, lp.x));
+    float zz = (1.0 - inX) * inZ * (step(lp.y, 3.0) + step(uBlock - 3.0, lp.y));
+    c = mix(c, vec3(0.55, 0.52, 0.55), clamp(zx * step(0.5, fract(w.y / 1.2)) + zz * step(0.5, fract(w.x / 1.2)), 0.0, 1.0) * 0.8);
+    // weicher Übergang von der Stadt zur Promenade
+    c = mix(c, vec3(0.4, 0.35, 0.38), smoothstep(-50.0, -46.0, d));
+  }
   diffuseColor.rgb = c;
 }`);
   };
+  mat.customProgramCacheKey = () => 'island-ground';
   const geo = new THREE.PlaneGeometry(6000, 6000);
   geo.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geo, mat);
@@ -210,69 +284,49 @@ float gHash(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yz
   return mesh;
 }
 
-// Straßenlaternen mit orangefarbenen Lichtkegeln auf dem Asphalt (nur Optik, keine Kollision).
-function createLamps(layout) {
-  const { N, B, P, origin } = layout;
-  const spots = [];
-  for (let i = 0; i < N; i++) {
-    for (let j = 0; j < N; j++) {
-      const bx = origin + i * P, bz = origin + j * P;
-      for (const f of [0.22, 0.78]) {
-        spots.push([bx + B * f, bz + 1.0, 0, -1]);
-        spots.push([bx + B * f, bz + B - 1.0, 0, 1]);
-        spots.push([bx + 1.0, bz + B * f, -1, 0]);
-        spots.push([bx + B - 1.0, bz + B * f, 1, 0]);
-      }
-    }
-  }
-  const group = new THREE.Group();
-  const n = spots.length;
-  const poles = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 7, 0.16), toonMaterial('#262230', { rim: 0 }), n);
-  const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(0.12, 0.12, 1.6), toonMaterial('#262230', { rim: 0 }), n);
-  const heads = new THREE.InstancedMesh(new THREE.BoxGeometry(0.5, 0.18, 0.7), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.0, 1.9, 0.8) }), n);
-  const poolTex = radialTexture();
-  const pools = new THREE.InstancedMesh(
-    new THREE.PlaneGeometry(9, 9).rotateX(-Math.PI / 2),
-    new THREE.MeshBasicMaterial({ map: poolTex, color: new THREE.Color(1.0, 0.45, 0.18), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }),
-    n,
-  );
-  const m = new THREE.Matrix4(), q = new THREE.Quaternion(), s = new THREE.Vector3(1, 1, 1), p = new THREE.Vector3();
-  spots.forEach(([x, z, dx, dz], k) => {
-    const yaw = Math.atan2(dx, dz);
-    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), yaw);
-    poles.setMatrixAt(k, m.compose(p.set(x, 3.5, z), q, s));
-    arms.setMatrixAt(k, m.compose(p.set(x + dx * 0.7, 6.95, z + dz * 0.7), q, s));
-    heads.setMatrixAt(k, m.compose(p.set(x + dx * 1.4, 6.85, z + dz * 1.4), q, s));
-    pools.setMatrixAt(k, m.compose(p.set(x + dx * 2.2, 0.03, z + dz * 2.2), q, s));
-  });
-  poles.castShadow = true;
-  pools.renderOrder = 1;
-  group.add(poles, arms, heads, pools);
-  return group;
-}
-
-function radialTexture() {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const g = c.getContext('2d');
-  const grad = g.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grad.addColorStop(0, 'rgba(255,255,255,1)');
-  grad.addColorStop(0.4, 'rgba(255,255,255,0.45)');
-  grad.addColorStop(1, 'rgba(255,255,255,0)');
-  g.fillStyle = grad;
-  g.fillRect(0, 0, 128, 128);
-  return new THREE.CanvasTexture(c);
-}
-
-// Gigantische Mauer rund um die Stadt – im Dunst nur als Silhouette sichtbar.
-function createWall(layout) {
-  const r = layout.half + 380;
-  const geo = new THREE.CylinderGeometry(r, r, 230, 160, 1, true);
-  geo.translate(0, 115, 0);
-  const mat = toonMaterial('#3a2a3e', { rim: 0, side: THREE.BackSide });
-  const wall = new THREE.Mesh(geo, mat);
-  const crown = new THREE.Mesh(new THREE.CylinderGeometry(r - 6, r - 6, 10, 160, 1, true).translate(0, 228, 0), toonMaterial('#2a1e30', { rim: 0, side: THREE.BackSide }));
-  const g = new THREE.Group();
-  g.add(wall, crown);
-  return g;
+// Meer: spiegelt den Abendhimmel, bewegte Wellen, Sonnenglitzern, Schaum an der Küste
+function createWater(mu, time) {
+  const mat = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+  mat.onBeforeCompile = (shader) => {
+    Object.assign(shader.uniforms, mu, { uTime: time });
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vWorldP;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvWorldP = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', `#include <common>
+uniform float uTime;
+varying vec3 vWorldP;
+${COAST_GLSL}
+${DUSK_GLSL}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>
+{
+  vec2 w = vWorldP.xz;
+  float d = length(w) - coastR(w);
+  if (d < -2.0) discard;
+  float t = uTime;
+  vec3 n = normalize(vec3(
+    sin(w.x * 0.11 + t * 0.8) * 0.05 + sin(w.y * 0.23 - t * 1.3) * 0.035 + sin((w.x - w.y) * 0.6 + t * 2.1) * 0.015,
+    1.0,
+    cos(w.y * 0.13 + t * 0.9) * 0.05 + sin((w.x + w.y) * 0.31 + t * 1.7) * 0.03 + cos(w.x * 0.7 - t * 2.4) * 0.015));
+  vec3 V = normalize(vWorldP - cameraPosition);
+  vec3 R = reflect(V, n);
+  R.y = abs(R.y);
+  float fres = 0.04 + 0.96 * pow(1.0 - max(dot(-V, n), 0.0), 5.0);
+  vec3 deep = vec3(0.025, 0.025, 0.07);
+  vec3 col = mix(deep, duskSky(R) * 0.9, clamp(fres, 0.0, 1.0));
+  col += DUSK_SUN * pow(max(dot(R, DUSK_SUN_DIR), 0.0), 350.0) * 5.0;
+  // flaches Wasser am Ufer heller, Schaumkante läuft auf den Strand
+  col = mix(col, vec3(0.32, 0.24, 0.3), (1.0 - smoothstep(0.0, 10.0, d)) * 0.35);
+  float foam = (1.0 - smoothstep(-2.0, 3.5, d)) * (0.55 + 0.45 * sin(d * 2.2 - t * 2.0 + gHash(floor(w * 0.3)) * 2.0));
+  col = mix(col, vec3(0.9, 0.8, 0.86), clamp(foam, 0.0, 1.0) * 0.75);
+  diffuseColor.rgb = col;
+}`);
+  };
+  mat.customProgramCacheKey = () => 'island-water';
+  const geo = new THREE.PlaneGeometry(6000, 6000, 1, 1);
+  geo.rotateX(-Math.PI / 2);
+  geo.translate(0, 0.18, 0);
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.renderOrder = 0;
+  return mesh;
 }
