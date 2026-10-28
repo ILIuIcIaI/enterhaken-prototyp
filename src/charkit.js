@@ -4,7 +4,7 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 import { outlineMaterial } from './toon.js';
 import { tubeGeometry, withColor } from './charGeo.js';
 import { smin, smax, sdSphere, sdEllipsoid, sdRoundCone, sdRoundBox, sdTorus, ConeSet, polygonize, paint, skin } from './sdf.js';
-import { Cloth, Colliders, clothMesh, ropeMesh, toLocal } from './cloth.js';
+import { Cloth, Colliders, clothMesh, ropeMesh, toLocal, Barrier } from './cloth.js';
 
 // Baukasten für die Spielfiguren. Alle Figuren teilen dasselbe Skelett (Gelenknamen, Animationen);
 // Proportionen, Kleidung, Haare und Gesicht kommen aus den Designs in src/designs/.
@@ -724,7 +724,9 @@ export function bodyColliders(K, names, { thigh = 0.085, shin = 0.058, hip = 0.1
 // Stoffbahn: grid(r, c) → Punkt im Modellraum (Bind-Pose); anchor = Knochen, an dem die obere Reihe sitzt
 // clear: SDF der Kleidung darunter (Hose, Körper) – die Ruheform wird radial so weit nach außen geschoben, dass sie
 // mit Abstand pad darüber liegt; weiter unten in derselben Spalte bleibt mindestens dieser Abstand (fällt glatt).
-export function addCloth(K, { anchor, rows, cols, wrap = false, grid, outer, inner, colors, uvs, colliders = ['legs', 'hips'], colliderOpts, pinned, clear = null, ...sim }) {
+// barriers: [{ anchor, x, y: [y0, y1], z: [z0, z1], sides }] – undurchdringliche Quader im Modellraum (Bind-Pose), etwas
+// kleiner als der Körper; der Stoff kann sie nicht durchqueren (siehe Barrier in cloth.js). An der Hüfte nur vorne/hinten hinaus.
+export function addCloth(K, { anchor, rows, cols, wrap = false, grid, outer, inner, colors, uvs, colliders = ['legs', 'hips'], colliderOpts, pinned, clear = null, barriers = [], ...sim }) {
   const pts = [];
   for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) pts.push(grid(r, c));
   if (clear) {
@@ -744,7 +746,11 @@ export function addCloth(K, { anchor, rows, cols, wrap = false, grid, outer, inn
     }
   }
   const rest = toLocal(pts, K.origins.get(anchor));
-  const cloth = new Cloth({ anchor, rest, rows, cols, wrap, pinned, colliders: colliders ? bodyColliders(K, colliders, colliderOpts) : null, ...sim });
+  const bars = barriers.map((b) => {
+    const o = K.origins.get(b.anchor);
+    return new Barrier(b.anchor, new THREE.Vector3(-b.x - o.x, b.y[0] - o.y, b.z[0] - o.z), new THREE.Vector3(b.x - o.x, b.y[1] - o.y, b.z[1] - o.z), b.sides ?? b.anchor !== K.hips);
+  });
+  const cloth = new Cloth({ anchor, rest, rows, cols, wrap, pinned, colliders: colliders ? bodyColliders(K, colliders, colliderOpts) : null, barriers: bars, ...sim });
   const mesh = clothMesh(cloth, { outer, inner, colors, uvs });
   K.cloths.push({ sim: cloth, mesh });
   return cloth;

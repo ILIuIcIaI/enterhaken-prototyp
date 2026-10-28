@@ -127,6 +127,6 @@ export function buildMakima(K) {
     radius: (t, a) => (t > 0.9 ? 0.014 * (1 - (t - 0.9) * 6) + 0.005 : (0.03 - 0.01 * t) * (0.84 + 0.2 * Math.abs(Math.sin(a + t * 40)))),
     material: K.mat(C.hair, { rim: 0.3, rimColor: '#ffb08a' }),
     colliders: ['torso', 'shoulders'], colliderOpts: { torso: 0.1 }, pad: 0.02,
-    pinned: (r) => r === 0, shape: 0.011, maxDev: (t) => 0.06 + 0.45 * t, inertia: 0.76, wind: 0.5, gust: 0.3, bend: 0.55,
+    pinned: (r) => r === 0, shape: 0.005, maxDev: (t) => 0.06 + 0.55 * t, inertia: 0.92, damping: 0.994, wind: 0.5, gust: 0.3, bend: 0.55,
   });
 }

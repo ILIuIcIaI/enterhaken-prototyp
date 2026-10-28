@@ -87,7 +87,8 @@ export function buildScientist(K) {
     },
     outer: K.mat(C.coat, { side: THREE.FrontSide, rim: 0.25 }), inner: K.mat(C.coatShade, { side: THREE.BackSide, rim: 0 }),
     colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.092, shin: 0.066, hip: 0.104, hipW: 0.078 }, pad: 0.014, clear: T,
-    shape: 0.014, maxDev: (t) => 0.01 + 0.42 * t, inertia: 0.78, wind: 0.62, gust: 0.38, bend: 0.32,
+    barriers: [{ anchor: K.hips, x: 0.11, y: [0.76, 0.92], z: [-0.06, 0.06] }],
+    shape: 0.0015, maxDev: (t) => 0.02 + 0.7 * t, inertia: 1, damping: 0.995, wind: 0.62, gust: 0.38, bend: 0.35, iterations: 6,
   });
   hands(K, () => skin, { w: 1.08 });
 

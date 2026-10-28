@@ -133,7 +133,8 @@ export function buildZero(K) {
     addCloth(K, {
       anchor: K.hips, rows: 11, cols: 7, grid: panel(sz, 11, 7, 0.975, len + 0.04, 0.1, w1, 0.03), outer, inner,
       colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.084, shin: 0.06, hip: 0.098, hipW: 0.065 }, pad: 0.012,
-      shape: 0.014, maxDev: (t) => 0.01 + 0.45 * t, inertia: 0.78, wind: 0.6, gust: 0.4, stretch: 1, bend: 0.35,
+      barriers: [{ anchor: K.hips, x: 0.1, y: [0.76, 0.93], z: [-0.06, 0.055] }],
+      shape: 0.002, maxDev: (t) => 0.02 + 0.7 * t, inertia: 1, damping: 0.995, wind: 0.6, gust: 0.4, stretch: 1, bend: 0.4, iterations: 6,
     });
   }
   // Umhang von den Schultern bis zu den Waden
@@ -152,7 +153,8 @@ export function buildZero(K) {
     outer: cOuter, inner: cInner,
     pinned: (r, c) => r === 0 || (r === 1 && Math.abs(c - (capeCols - 1) / 2) < 3),
     colliders: ['torso', 'hips', 'legs', 'shoulders', 'head'], colliderOpts: { torso: 0.12, hip: 0.1, hipW: 0.065, thigh: 0.086, shin: 0.062 }, pad: 0.014,
-    shape: 0.009, maxDev: (t) => 0.02 + 0.9 * t, inertia: 0.84, wind: 0.75, gust: 0.45, stretch: 1, bend: 0.6, iterations: 6,
+    barriers: [{ anchor: K.chest, x: 0.1, y: [0.86, 1.25], z: [-0.06, 0.05] }, { anchor: K.hips, x: 0.11, y: [0.76, 0.86], z: [-0.06, 0.055] }],
+    shape: 0.0006, maxDev: (t) => 0.05 + 1.5 * t, inertia: 1, damping: 0.996, wind: 0.75, gust: 0.45, stretch: 1, bend: 0.6, iterations: 8,
   });
   // Schließe auf der linken Schulter
   P.add(K.chest, RB(0.05, 0.05, 0.016, 0.008), K.mat(C.silver, { rim: 0.45 }), { pos: [-0.14, 1.27, -0.02], rot: [0.3, 0.2, 0.5], hull: 0.002 });
@@ -222,7 +224,7 @@ export function buildZero(K) {
     outer: K.mat('#ffffff', { vertexColors: true, side: THREE.DoubleSide, rim: 0.3, rimColor: '#ffd6f0' }), inner: null,
     pinned: (r) => r <= 1,
     colliders: ['torso', 'shoulders'], colliderOpts: { torso: 0.105 }, pad: 0.018,
-    shape: 0.014, maxDev: (t) => 0.02 + 0.4 * t, inertia: 0.74, wind: 0.55, gust: 0.35, stretch: 1, bend: 0.45,
+    shape: 0.004, maxDev: (t) => 0.02 + 0.55 * t, inertia: 0.95, damping: 0.994, wind: 0.55, gust: 0.35, stretch: 1, bend: 0.45, iterations: 6,
   });
   // zwei lange Strähnen vorne über den Schultern
   for (const s of [-1, 1]) {
@@ -236,7 +238,7 @@ export function buildZero(K) {
       radius: (t, a) => (0.018 - 0.012 * t) * (1 + 0.5 * Math.cos(a) ** 2),
       material: K.mat(C.hair, { rim: 0.3, rimColor: '#ffd6f0' }),
       colliders: ['torso', 'shoulders'], colliderOpts: { torso: 0.1 }, pad: 0.03,
-      pinned: (r) => r === 0, shape: 0.016, maxDev: (t) => 0.03 + 0.3 * t, inertia: 0.7, wind: 0.5, bend: 0.55,
+      pinned: (r) => r === 0, shape: 0.006, maxDev: (t) => 0.03 + 0.4 * t, inertia: 0.92, damping: 0.994, wind: 0.5, bend: 0.55,
     });
   }
 }

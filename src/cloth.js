@@ -24,6 +24,7 @@ const _p = new THREE.Vector3();
 const _q = new THREE.Vector3();
 const _m = new THREE.Matrix4();
 const _m0 = new THREE.Matrix4();
+const _bq = new Float32Array(3);
 
 // Kapseln zwischen zwei Knochen, optional verjüngt (r → r2) (Weltraum, je Teilschritt zwischen letztem und aktuellem Bild interpoliert)
 export class Colliders {
@@ -70,12 +71,73 @@ export class Colliders {
   }
 }
 
+// Sperrbereich: Quader im lokalen Raum eines Knochens (etwas kleiner als der Körper). Anders als die Kapseln
+// merkt er sich, von welcher Seite ein Stoffpunkt kam – auch bei abruptem Bremsen oder Drehen kann der Stoff
+// nicht durch Rumpf oder Hüfte hindurch auf die andere Seite rutschen (er wird an der Eintrittsseite gehalten).
+export class Barrier {
+  // sides = false: nur nach vorne/hinten hinausschieben (an der Hüfte lägen die seitlichen Ausgänge in den Oberschenkeln)
+  constructor(anchor, min, max, sides = true) {
+    this.anchor = anchor;
+    this.min = min;
+    this.max = max;
+    this.sides = sides;
+    this.t0 = new THREE.Vector3();
+    this.t1 = new THREE.Vector3();
+    this.e = new Float32Array(9);
+    this.s2 = 1;
+  }
+
+  capture(first) {
+    const m = this.anchor.matrixWorld.elements;
+    this.t0.copy(this.t1);
+    this.t1.set(m[12], m[13], m[14]);
+    if (first) this.t0.copy(this.t1);
+    for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) this.e[k * 3 + j] = m[k * 4 + j];
+    this.s2 = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
+  }
+
+  // Weltpunkt → lokal (out), Zeitanteil u im Bild
+  toLocal(x, o, u, out) {
+    const e = this.e, t0 = this.t0, t1 = this.t1;
+    const dx = x[o] - (t0.x + (t1.x - t0.x) * u), dy = x[o + 1] - (t0.y + (t1.y - t0.y) * u), dz = x[o + 2] - (t0.z + (t1.z - t0.z) * u);
+    out[0] = (e[0] * dx + e[1] * dy + e[2] * dz) / this.s2;
+    out[1] = (e[3] * dx + e[4] * dy + e[5] * dz) / this.s2;
+    out[2] = (e[6] * dx + e[7] * dy + e[8] * dz) / this.s2;
+  }
+
+  toWorld(q, x, o, u) {
+    const e = this.e, t0 = this.t0, t1 = this.t1;
+    x[o] = t0.x + (t1.x - t0.x) * u + e[0] * q[0] + e[3] * q[1] + e[6] * q[2];
+    x[o + 1] = t0.y + (t1.y - t0.y) * u + e[1] * q[0] + e[4] * q[1] + e[7] * q[2];
+    x[o + 2] = t0.z + (t1.z - t0.z) * u + e[2] * q[0] + e[5] * q[1] + e[8] * q[2];
+  }
+
+  // q (lokal) aus dem Quader schieben – zur Seite, auf der der Punkt vorher war (p[o..o+2] = letzte lokale Lage)
+  resolve(q, p, o, pad) {
+    const mn = this.min, mx = this.max;
+    if (q[0] <= mn.x - pad || q[0] >= mx.x + pad || q[1] <= mn.y || q[1] >= mx.y || q[2] <= mn.z - pad || q[2] >= mx.z + pad) return false;
+    if (!this.sides) q[2] = p[o + 2] < (mn.z + mx.z) / 2 ? mn.z - pad : mx.z + pad;
+    else if (p[o + 2] >= mx.z + pad) q[2] = mx.z + pad;
+    else if (p[o + 2] <= mn.z - pad) q[2] = mn.z - pad;
+    else if (p[o] >= mx.x + pad) q[0] = mx.x + pad;
+    else if (p[o] <= mn.x - pad) q[0] = mn.x - pad;
+    else {
+      // war schon drin (z. B. nach einem Reset): kürzester Weg hinaus
+      const d = [q[2] - (mn.z - pad), mx.z + pad - q[2], q[0] - (mn.x - pad), mx.x + pad - q[0]];
+      const k = d.indexOf(Math.min(...d));
+      if (k === 0) q[2] = mn.z - pad; else if (k === 1) q[2] = mx.z + pad; else if (k === 2) q[0] = mn.x - pad; else q[0] = mx.x + pad;
+    }
+    return true;
+  }
+}
+
 export class Cloth {
   // rest: Float32Array (rows*cols*3) im lokalen Raum von anchor; pinned(r, c) → bool
   constructor({ anchor, rest, rows, cols, wrap = false, pinned = (r) => r === 0, colliders = null, pad = 0.012,
     shape = 0.04, maxDev = () => 0.3, inertia = 0.55, wind = 0.5, gust = 0.35, gravity = 9.8, damping = 0.985,
-    stretch = 1.0, bend = 0.35, iterations = 4 }) {
-    Object.assign(this, { anchor, rows, cols, wrap, colliders, pad, shape, maxDev, inertia, wind, gust, gravity, damping, stretch, bend, iterations });
+    stretch = 1.0, bend = 0.35, iterations = 4, barriers = [], tether = 1.04, lift = 1 }) {
+    // lift: Anteil des Fahrtwinds von unten (beim Fallen), der den Stoff hochdrückt – kurze Röcke klappen sonst ganz hoch
+    Object.assign(this, { anchor, rows, cols, wrap, colliders, pad, shape, maxDev, inertia, wind, gust, gravity, damping, stretch, bend, iterations, barriers, tether, lift });
     const n = rows * cols;
     this.n = n;
     this.rest = rest;
@@ -104,6 +166,18 @@ export class Cloth {
     }
     this.links = new Float32Array(links);
     this.bends = new Float32Array(bends);
+    // Haltefäden: jeder freie Punkt bleibt höchstens tether × Ruheabstand von seinem nächsten festen Punkt entfernt
+    // (der Stoff dehnt sich nie wie Gummi, auch wenn er völlig frei schwingt)
+    this.tIdx = new Int32Array(n).fill(-1);
+    this.tLen = new Float32Array(n);
+    if (tether) for (let i = 0; i < n; i++) {
+      if (this.pin[i]) continue;
+      let best = -1, bd = Infinity;
+      for (let j = 0; j < n; j++) if (this.pin[j]) { const d = L(i, j); if (d < bd) { bd = d; best = j; } }
+      this.tIdx[i] = best;
+      this.tLen[i] = bd;
+    }
+    this.lp = barriers.map(() => new Float32Array(n * 3)); // letzte lokale Lage je Sperrbereich
     this.anchorPos0 = new THREE.Vector3();
     this.anchorPos1 = new THREE.Vector3();
     this.ready = false;
@@ -132,6 +206,10 @@ export class Cloth {
     this.colliders?.capture();
     this.colliders?.capture();
     this.sc = new THREE.Vector3().setFromMatrixScale(this.anchor.matrixWorld).x;
+    this.barriers.forEach((b, k) => {
+      b.capture(true);
+      for (let i = 0; i < this.n; i++) b.toLocal(this.x, i * 3, 1, this.lp[k].subarray(i * 3, i * 3 + 3));
+    });
     this.ready = true;
   }
 
@@ -146,6 +224,7 @@ export class Cloth {
     // Teleport / Reset der Figur: Stoff sofort in Ruhelage
     if (this.anchorPos0.distanceToSquared(this.anchorPos1) > 25) return this.reset();
     this.colliders?.capture();
+    for (const b of this.barriers) b.capture(false);
     const steps = Math.max(1, Math.min(6, Math.round(dt / H)));
     const h = dt / steps;
     const vx = (this.anchorPos1.x - this.anchorPos0.x) / dt, vy = (this.anchorPos1.y - this.anchorPos0.y) / dt, vz = (this.anchorPos1.z - this.anchorPos0.z) / dt;
@@ -157,10 +236,10 @@ export class Cloth {
       this.time += h;
       this.colliders?.at(u);
       // Luftstrom = Dauerwind − eigene Bewegung (begrenzt) + Böen
-      const aw = WIND.speed * windGust(this.time), ax = WIND.dir.x * aw - vx, az = WIND.dir.z * aw - vz;
+      const aw = WIND.speed * windGust(this.time) * 0.35, ax = WIND.dir.x * aw - vx, az = WIND.dir.z * aw - vz;
       const k = Math.min(1, Math.hypot(ax, vy, az) / 25);
       const g = 1 + this.gust * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.9 + 1.3);
-      const wx = ax * this.wind * g, wy = -vy * this.wind * 0.5 * g, wz = az * this.wind * g;
+      const wx = ax * this.wind * g, wy = -vy * this.wind * 0.5 * g * (vy < 0 ? this.lift : 1), wz = az * this.wind * g;
       const lim = 26 * this.wind;
       const wl = Math.hypot(wx, wy, wz), ws = wl > lim ? lim / wl : 1;
       const sway = WIND.sway * windGust(this.time) * (WIND.speed / 3.2);
@@ -200,7 +279,8 @@ export class Cloth {
           }
         }
       }
-      // maximaler Ausschlag gegenüber der Ruhelage
+      if (this.tether) this.applyTethers();
+      // maximaler Ausschlag gegenüber der Ruhelage (bei freiem Stoff nur Sicherheitsnetz)
       for (let i = 0; i < n; i++) {
         if (pin[i]) continue;
         const o = i * 3;
@@ -211,7 +291,44 @@ export class Cloth {
           x[o] = rx + dx * f; x[o + 1] = ry + dy * f; x[o + 2] = rz + dz * f;
         }
       }
+      // Haltefäden und Ausschlagsgrenze können Punkte zurück in die Beine ziehen – Kapseln darum noch einmal anwenden,
+      // die Körpersperre zuletzt: keine andere Korrektur darf den Stoff danach noch hineinschieben
+      if (this.colliders) {
+        for (let i = 0; i < n; i++) {
+          if (pin[i]) continue;
+          _a.fromArray(x, i * 3);
+          this.colliders.push(_a, this.pad);
+          this.colliders.push(_a, this.pad); // zweimal: zwischen zwei Kapseln (Beine, Hüfte) nicht von der einen in die andere
+          _a.toArray(x, i * 3);
+        }
+      }
+      this.applyBarriers(u);
     }
+  }
+
+  applyTethers() {
+    const x = this.x, slack = this.tether * this.sc;
+    for (let i = 0; i < this.n; i++) {
+      const j = this.tIdx[i];
+      if (j < 0) continue;
+      const oi = i * 3, oj = j * 3;
+      const dx = x[oi] - x[oj], dy = x[oi + 1] - x[oj + 1], dz = x[oi + 2] - x[oj + 2], d = Math.hypot(dx, dy, dz), L = this.tLen[i] * slack;
+      if (d > L) { const f = L / d; x[oi] = x[oj] + dx * f; x[oi + 1] = x[oj + 1] + dy * f; x[oi + 2] = x[oj + 2] + dz * f; }
+    }
+  }
+
+  applyBarriers(u) {
+    if (!this.barriers.length) return;
+    const x = this.x, pin = this.pin, q = _bq, pad = this.pad / this.sc;
+    this.barriers.forEach((b, k) => {
+      const lp = this.lp[k];
+      for (let i = 0; i < this.n; i++) {
+        const o = i * 3;
+        b.toLocal(x, o, u, q);
+        if (!pin[i] && b.resolve(q, lp, o, pad)) b.toWorld(q, x, o, u);
+        lp[o] = q[0]; lp[o + 1] = q[1]; lp[o + 2] = q[2];
+      }
+    });
   }
 
   solve(list, k) {

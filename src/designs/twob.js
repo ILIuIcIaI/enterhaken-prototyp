@@ -5,7 +5,7 @@ import { body, bodyField, armFrames, armCoord, legCoord, fitted, shell, frontZ, 
 
 // 2B (NieR:Automata): weiß-silberner Bob mit schwarzem Haarreif, schwarze Augenbinde, rote Lippen mit
 // Muttermal. Schwarzes Gothic-Kleid: Stehkragen, rautenförmiges Brustfenster mit beiger Stickerei,
-// Puffärmel, Federbesatz an den Manschetten, schwarze Handschuhe, ausgestellter Rock vorne offen mit grauer
+// Puffärmel, Federbesatz an den Manschetten, schwarze Handschuhe, kurzer ausgestellter Rock vorne offen mit grauer
 // Stickerei am Saum, kniehohe schwarze Absatzstiefel und durchscheinende Strümpfe. Ohne Schwert.
 const C = {
   skin: '#f6e2d8', black: '#1e1c23', blackSoft: '#2d2a33', beige: '#c8b48c', gray: '#6c6a72', white: '#f2f1ee',
@@ -40,12 +40,12 @@ export function buildTwoB(K) {
   const shape = { bust: 0.051, hips: [0.13, 0.102, 0.088], waist: [0.092, 0.12, 0.069], thigh: [0.076, 0.047] };
   const G = bodyField(K, shape);
 
-  // Körper: Stiefel bis übers Knie, darüber durchscheinende Strümpfe, schwarzer Body unter dem Rock
+  // Körper: Stiefel bis übers Knie, darüber durchscheinende Strümpfe, weißer Body unter dem Rock (in der Rocköffnung sichtbar)
   body(K, {
     field: G,
     color: (x, y, z, nx, ny, nz, part) => {
-      if (part === 'legL' || part === 'legR') return layered(skin, [[sheer, soft(y - 0.7, 0.006) * 0.75], [black, soft(y - 0.555, 0.003)]]);
-      if (part === 'torso') return layered(skin, [[black, soft(y - 0.96, 0.004) * (y > 0.7 ? 1 : 0)]]);
+      if (part === 'legL' || part === 'legR') return layered(skin, [[sheer, soft(y - 0.7, 0.006) * 0.75], [black, soft(y - 0.555, 0.003)], [white, soft(0.785 - y + Math.abs(x) * 0.25, 0.004)]]);
+      if (part === 'torso') return layered(skin, [[white, soft(y - 0.96, 0.004) * (y > 0.7 ? 1 : 0)]]);
       return skin;
     },
   });
@@ -101,23 +101,26 @@ export function buildTwoB(K) {
   }
   hands(K, () => blackSoft);
 
-  // Rock: ausgestellt, vorne offen (Stoffsimulation, kollidiert mit den Beinen)
-  const rows = 9, cols = 28;
+  // Rock: kurz und ausgestellt, um Hüfte und Rücken geschlossen, vorne offen – die Öffnung beginnt schmal an der Taille
+  // und wird zum Saum hin breiter (umgedrehtes V), leicht zur rechten Seite versetzt (Stoffsimulation)
+  const rows = 8, cols = 27;
   const skirtMap = skirtTexture();
+  const front = Math.PI - 0.12, gap = (t) => 0.1 + 0.32 * t;
   addCloth(K, {
-    anchor: K.hips, rows, cols, wrap: true,
+    anchor: K.hips, rows, cols,
     grid: (r, c) => {
       const t = r / (rows - 1);
-      const a = Math.PI + (c / cols) * Math.PI * 2;
-      const len = 0.3 + 0.08 * Math.min(1, Math.abs(Math.cos(a / 2)) * 1.6);
+      const a = front + gap(t) + (c / (cols - 1)) * (Math.PI * 2 - 2 * gap(t));
+      const len = 0.215 + 0.05 * Math.min(1, Math.abs(Math.cos(a / 2)) * 1.6);
       const y = 0.925 - len * t;
       const rx = 0.128 + 0.1 * t ** 0.9, rz = 0.098 + 0.085 * t ** 0.9;
       return new THREE.Vector3(Math.sin(a) * rx, y, Math.cos(a) * rz + 0.006);
     },
-    uvs: (r, c) => [(c / cols) * 3, 1 - r / (rows - 1)],
+    uvs: (r, c) => [(c / (cols - 1)) * 3, 1 - r / (rows - 1)],
     outer: K.mat('#ffffff', { map: skirtMap, side: THREE.FrontSide, rim: 0.3 }), inner: K.mat(C.blackSoft, { side: THREE.BackSide, rim: 0 }),
     colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.084, shin: 0.058, hip: 0.098, hipW: 0.065 }, pad: 0.012, clear: G.fn,
-    shape: 0.011, maxDev: (t) => 0.01 + 0.34 * t, inertia: 0.8, wind: 0.65, gust: 0.4, stretch: 1, bend: 0.28,
+    barriers: [{ anchor: K.hips, x: 0.11, y: [0.76, 0.92], z: [-0.06, 0.06] }],
+    shape: 0.003, maxDev: (t) => 0.02 + 0.22 * t, lift: 0.3, inertia: 1, damping: 0.995, wind: 0.65, gust: 0.4, stretch: 1, bend: 0.45, iterations: 6,
   });
   skirtMap.wrapS = THREE.RepeatWrapping;
 

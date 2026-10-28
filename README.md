@@ -112,8 +112,9 @@ All characters play identically – only the look differs. They come without wea
   with painted faces and hair from merged strands; each character lives in its own file in `src/designs/`.
   Steve is built from pixel cubes like the original.
 - **Cloth physics** (`src/cloth.js`): coat tails, hems, skirts, capes, dress panels, ties, bandana ends, long hair and
-  braids are simulated (Verlet, 120 Hz) and pushed out of capsules around legs, hips and torso, so legs never pass
-  through the fabric. A gentle, steady breeze lets them sway slightly even when standing still.
+  braids are simulated (Verlet, 120 Hz); capes, skirts and coat tails move fully freely. Capsules around legs, hips
+  and torso plus impenetrable body zones keep the fabric outside the body, tethers stop it from stretching. A gentle,
+  steady breeze lets everything sway slightly even when standing still.
 - **Character shadows** (`src/charshadow.js`): a second, tight shadow map follows the character, so its shadow shows
   the real silhouette – cape and coat tails included.
 

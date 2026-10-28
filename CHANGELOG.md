@@ -5,14 +5,26 @@ All notable changes to this project. The format is based on
 
 ## [0.6.1] – 2026-10-28
 
-Patch: flowing clothes react much more to movement, and Steve is textured on all sides.
+Patch: capes, skirts and coat tails are fully dynamic now, 2B has a new skirt, and Steve is textured on all sides.
+
+### Added
+- **Body barrier for cloth:** impenetrable zones inside the torso and pelvis remember which side the fabric came
+  from, so it can never slip through the body – not even on a full stop out of 140 km/h or in a fast spin. The fabric
+  wraps around the sides instead.
+- **Tethers:** every point of the fabric stays within its rest distance of where it is attached, so free cloth
+  never stretches like rubber.
+- Stronger bending resistance keeps capes and coat tails wide and flat instead of twisting into ribbons; after
+  wild motion they fall back into a clean drape on their own.
 
 ### Changed
-- **Looser cloth physics for flowing clothes:** Zero's cape, 2B's skirt, Joker's coat tails, the Scientist's lab coat,
-  Zero's dress panels and long hair, Makima's braid, ties and bandana ends now lag behind, swing and flutter when
-  walking, running, jumping, gliding and swinging instead of moving almost rigidly with the body. At speed the cape
-  and coat tails stream backward; when falling, the skirt and cape lift a little. The gentle breeze stays as subtle
-  as before.
+- **Fully dynamic cloth for flowing clothes:** Zero's cape and dress panels, 2B's skirt, Joker's coat tails and the
+  Scientist's lab coat are simulated completely freely – no pull back into a fixed shape, no rigid carrying along
+  with the body. The whole length moves, down to the hem: the fabric lags behind, swings, billows when running,
+  streams backward when swinging and gliding, and lifts when jumping or falling. Zero's long hair and Makima's braid
+  move more freely as well; ties and bandana ends are a little looser. The gentle breeze stays as subtle as before.
+- **2B's new skirt:** shorter, and open at the front like the original – closed around the hips and back, with an
+  opening that starts narrow at the waist and widens toward the hem, showing the white leotard underneath. When
+  falling, it lifts only a little instead of flipping up.
 
 ### Fixed
 - **Steve's sides:** the left and right faces of his head, arms, torso and legs were turned inward and showed up as
