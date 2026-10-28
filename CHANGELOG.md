@@ -3,6 +3,19 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.5.1] – 2026-10-28
+
+Patch: the train and the airplanes are now solid, and the elevated railway runs much higher.
+
+### Added
+- **Collision with the train and the airplanes:** Kaia can land on the train roofs, on an airplane's fuselage and
+  on its wings, ride along (including the vehicle's turns) and run around on top. Jumping off keeps the vehicle's
+  speed. From the side or from below the vehicles push her out instead of letting her pass through.
+
+### Changed
+- **Higher viaduct:** the track now runs at 24 m instead of 13 m on taller, thicker pillars, so you can swing
+  underneath it.
+
 ## [0.5.0] – 2026-10-28
 
 Smoother, livelier animations with a real grappling arm, a far less grid-like city with curved residential
@@ -188,6 +201,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.5.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.3.0

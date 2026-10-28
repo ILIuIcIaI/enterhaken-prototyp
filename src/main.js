@@ -52,6 +52,7 @@ class Game {
     this.charEvents = [];
 
     this.player = new Player(this.city);
+    this.player.movers = this.transit.movers;
     this.hooks = [new Hook(-1, this.scene), new Hook(1, this.scene)];
     this.character = new Character();
     this.scene.add(this.character.root, this.character.wings);
@@ -104,6 +105,7 @@ class Game {
     this.world.rebuild();
     this.traffic.build(this.city, 150);
     this.transit.build(this.city);
+    this.player.movers = this.transit.movers;
     this.spawn();
   }
 

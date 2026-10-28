@@ -4,7 +4,7 @@ Third-person prototype: swing, glide and wall-run with two grappling hooks throu
 dystopian high-rise city on an island at dusk. The player character is an anime-style girl named Kaia. No levels,
 no goals – just a sandbox for testing feel and physics.
 
-**Current version: 0.5.0** · see [CHANGELOG.md](CHANGELOG.md) for changes
+**Current version: 0.5.1** · see [CHANGELOG.md](CHANGELOG.md) for changes
 
 | | |
 |---|---|
@@ -54,7 +54,8 @@ Alternatively: `powershell -ExecutionPolicy Bypass -File serve.ps1 -Open`
 - **Aiming matters:** the hook flies exactly to where the crosshair hits a building
   (green = within the 140 m range, red = too far).
 - **Moving targets:** the elevated train and the airplanes can be hooked too – the anchor stays on the vehicle and
-  Kaia gets towed along.
+  Kaia gets towed along. Both are solid: she can land on the train roofs or on an airplane, ride along, run around
+  on top and jump off with the vehicle's speed.
 - **Rope physics:** point mass with gravity and air drag, slightly elastic rope (spring + damper, hard limit at 1.5 m
   of stretch), smooth reeling in, steering perpendicular to the rope, a small boost when letting go, ropes wrap
   around edges.
@@ -72,8 +73,8 @@ Alternatively: `powershell -ExecutionPolicy Bypass -File serve.ps1 -Open`
   winding paths, gentle hills and ponds.
 - **Life in the streets:** about 150 cars and buses in many colors drive on the right, keep their distance, stop at
   traffic lights (each approach gets its own green phase) and wait at junctions without lights.
-- **Elevated train:** a curved viaduct loop through the city with two stations; the train speeds up, brakes and
-  stops at each station.
+- **Elevated train:** a curved viaduct loop 24 m above the streets – high enough to swing underneath – with two
+  stations; the train speeds up, brakes and stops at each station.
 - **Airplanes:** three planes fly wide, calm loops over the island, each in its own altitude band above the
   buildings, so they never get close to each other; navigation lights and strobes at dusk.
 - **Districts and building shapes:** towers, stepped high-rises, twin towers with a skybridge, spires, slab

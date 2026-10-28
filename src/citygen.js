@@ -6,7 +6,7 @@ import { pondRadius } from './terrain.js';
 // Stadtplan: Raster-Innenstadt, organische Parks über Blockgrenzen hinweg, Wohnviertel mit
 // geschwungenen Straßen, Ringstraße entlang der Küste und eine freigeräumte Trasse für die Hochbahn.
 
-export const TRACK_Y = 13; // Oberkante des Viadukts
+export const TRACK_Y = 24; // Oberkante des Viadukts (hoch genug, um darunter durchzuschwingen)
 export const BOULEVARD_D = -53; // Mittellinie der Ringstraße (Küstenabstand)
 export const ART_W = 15; // Rasterstraße inkl. Gehwege
 export const LOCAL_W = 11; // Wohnstraße inkl. Gehwege
@@ -373,7 +373,7 @@ function buildViaduct(city, net) {
     for (const ds of [0, 5, -5, 9, -9]) {
       tr.at(s + ds, a);
       if (net.clearance(a.x, a.z) < 1.0) continue;
-      city.addBox(a.x - 0.8, 0, a.z - 0.8, a.x + 0.8, TRACK_Y - 1.3, a.z + 0.8, { ...concrete });
+      city.addBox(a.x - 1.05, 0, a.z - 1.05, a.x + 1.05, TRACK_Y - 1.3, a.z + 1.05, { ...concrete });
       city.pillars.push({ x: a.x, z: a.z });
       break;
     }

@@ -23,6 +23,9 @@ const _target = new THREE.Vector3();
 const _vh = new THREE.Vector3();
 const _up0 = new THREE.Vector3();
 const _rt = new THREE.Vector3();
+const _mq = new THREE.Quaternion();
+const _ml = new THREE.Vector3();
+const _mp = new THREE.Vector3();
 
 const approach = (cur, target, delta) => (cur < target ? Math.min(cur + delta, target) : Math.max(cur - delta, target));
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -84,6 +87,10 @@ export class Player {
     // Gleiter
     this.gliding = false;
     this.glide = { bank: 0, alpha: 0.2, deploy: 0, lift: new THREE.Vector3(0, 1, 0) };
+    // Fahrzeuge (Zug, Flugzeuge): Kollision, Mitfahren auf dem Dach
+    this.movers = [];
+    this.platform = null;
+    this.platLocal = new THREE.Vector3();
   }
 
   reset(p, yaw = 0) {
@@ -99,6 +106,7 @@ export class Player {
     this.pivot = null;
     this.gliding = false;
     this.dashTimer = 0;
+    this.platform = null;
   }
 
   get feetY() {
@@ -113,6 +121,8 @@ export class Player {
   step(dt, ctl, hooks) {
     const P = CONFIG.player, PH = CONFIG.physics, H = CONFIG.hook, G = CONFIG.gas;
     const v = this.vel;
+    // auf einem Fahrzeug: dessen Bewegung (inkl. Drehung) seit dem letzten Schritt mitmachen
+    if (this.platform) this.platform.worldPoint(this.platLocal, this.pos);
     this.prevPos.copy(this.pos);
     if (ctl.jumpPressed) this.jumpBuffer = 0.15;
     this.jumpBuffer -= dt;
@@ -513,6 +523,17 @@ export class Player {
   // ------------------------------------------------------------------ Kontakte auswerten
   postStep(dt, ctl) {
     const G = CONFIG.gas;
+    // Fahrzeugwechsel: beim Aufsetzen zählt das Tempo relativ zum Fahrzeug, beim Absprung nimmt man es mit
+    const plat = this._landed ?? null;
+    if (plat !== this.platform) {
+      if (this.platform) this.vel.add(this.platform.vel);
+      if (plat) this.vel.sub(plat.vel);
+      this.platform = plat;
+    }
+    if (plat) {
+      _mq.copy(plat.quat).invert();
+      this.platLocal.copy(this.pos).sub(plat.pos).applyQuaternion(_mq);
+    }
     let ground = false, wallKeep = false, wallHit = null, bestImpact = -1;
     for (const c of this.contacts) {
       if (Math.abs(c.n.y) > 0.5) {
@@ -578,8 +599,47 @@ export class Player {
     this.moveAxis(0, target.x - p.x, hx);
     this.moveAxis(2, target.z - p.z, hx);
     this.resolveRotated(startFeet);
+    this._landed = this.resolveMovers();
     this.depenetrate();
     this.groundContact();
+  }
+
+  // Zugwagen und Flugzeuge: Boxen im lokalen System des Fahrzeugs. Von oben kommend landet man auf
+  // dem Dach (bzw. Rumpf/Tragfläche), sonst wird man auf dem kürzesten Weg herausgeschoben.
+  resolveMovers() {
+    const P = CONFIG.player, hx = P.halfWidth, hy = P.halfHeight, p = this.pos;
+    let landed = null;
+    for (const m of this.movers) {
+      if (m.pos.distanceToSquared(p) > 45 * 45) continue;
+      _mq.copy(m.quat).invert();
+      _ml.copy(p).sub(m.pos).applyQuaternion(_mq);
+      _mp.copy(this.prevPos).sub(m.pos).applyQuaternion(_mq);
+      for (const b of m.boxes) {
+        if (_ml.x < b.min.x - hx || _ml.x > b.max.x + hx || _ml.z < b.min.z - hx || _ml.z > b.max.z + hx) continue;
+        if (_ml.y - hy >= b.max.y || _ml.y + hy <= b.min.y) continue;
+        if (_mp.y - hy >= b.max.y - 0.6) {
+          _ml.y = b.max.y + hy + EPS;
+          _n.set(0, 1, 0);
+          landed = m;
+        } else {
+          const px = Math.min(b.max.x + hx - _ml.x, _ml.x - b.min.x + hx);
+          const pz = Math.min(b.max.z + hx - _ml.z, _ml.z - b.min.z + hx);
+          const pd = _ml.y + hy - b.min.y;
+          if (pd < px && pd < pz) { _ml.y = b.min.y - hy - EPS; _n.set(0, -1, 0); }
+          else if (px < pz) {
+            const s = _ml.x > (b.min.x + b.max.x) / 2 ? 1 : -1;
+            _ml.x = s > 0 ? b.max.x + hx + EPS : b.min.x - hx - EPS; _n.set(s, 0, 0);
+          } else {
+            const s = _ml.z > (b.min.z + b.max.z) / 2 ? 1 : -1;
+            _ml.z = s > 0 ? b.max.z + hx + EPS : b.min.z - hx - EPS; _n.set(0, 0, s);
+          }
+        }
+        _n.applyQuaternion(m.quat);
+        contact(this.contacts, _n.x, _n.y, _n.z, null);
+        p.copy(_ml).applyQuaternion(m.quat).add(m.pos);
+      }
+    }
+    return landed;
   }
 
   moveAxis(axis, delta, ha) {
