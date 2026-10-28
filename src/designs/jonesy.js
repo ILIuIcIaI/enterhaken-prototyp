@@ -156,7 +156,7 @@ export function buildJonesy(K) {
         return new THREE.Vector3(B.shoulderX + Math.sin(a) * rn * out, by - 0.004 - len * t, Math.cos(a) * rz * out + 0.01 * t);
       },
       outer: bmat, inner: null, colliders: ['arms'], pad: 0.004,
-      shape: 0.05, maxDev: (t) => 0.01 + 0.08 * t, inertia: 0.45, wind: 0.8, gust: 0.6, bend: 0.3,
+      shape: 0.03, maxDev: (t) => 0.01 + 0.12 * t, inertia: 0.7, wind: 0.85, gust: 0.6, bend: 0.3,
     });
   }
 

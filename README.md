@@ -4,7 +4,7 @@ Third-person prototype: swing, glide and wall-run with two grappling hooks throu
 dystopian high-rise city on an island at dusk. Ten playable characters, picked on the start screen and purely
 cosmetic. No levels, no goals – just a sandbox for testing feel and physics.
 
-**Current version: 0.6.0** · see [CHANGELOG.md](CHANGELOG.md) for changes
+**Current version: 0.6.1** · see [CHANGELOG.md](CHANGELOG.md) for changes
 
 ![The ten playable characters](docs/screenshots/figuren.png)
 

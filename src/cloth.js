@@ -161,7 +161,7 @@ export class Cloth {
       const k = Math.min(1, Math.hypot(ax, vy, az) / 25);
       const g = 1 + this.gust * Math.sin(this.time * 7.3) * Math.sin(this.time * 2.9 + 1.3);
       const wx = ax * this.wind * g, wy = -vy * this.wind * 0.5 * g, wz = az * this.wind * g;
-      const lim = 14 * this.wind;
+      const lim = 26 * this.wind;
       const wl = Math.hypot(wx, wy, wz), ws = wl > lim ? lim / wl : 1;
       const sway = WIND.sway * windGust(this.time) * (WIND.speed / 3.2);
       for (let i = 0; i < n; i++) {
@@ -185,7 +185,7 @@ export class Cloth {
         x[o + 2] += (x[o + 2] - xp[o + 2]) * this.damping + wz * ws * flutter * h * h;
         xp[o] = ox; xp[o + 1] = oy; xp[o + 2] = oz;
         // sanfter Zug zur Ruheform (vom Dauerwind leicht verschoben, mit leichtem Flattern)
-        const sw = sway * dev[i] * (1 + 0.2 * Math.sin(this.time * 3.1 + i * 0.37));
+        const sw = sway * Math.min(dev[i], 0.3) * (1 + 0.2 * Math.sin(this.time * 3.1 + i * 0.37));
         x[o] += (rx + WIND.dir.x * sw - x[o]) * this.shape; x[o + 1] += (ry - x[o + 1]) * this.shape; x[o + 2] += (rz + WIND.dir.z * sw - x[o + 2]) * this.shape;
       }
       for (let it = 0; it < this.iterations; it++) {

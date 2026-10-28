@@ -89,7 +89,7 @@ export function buildJoker(K) {
       },
       outer: K.mat(C.coat, { side: THREE.FrontSide, rim: 0.35 }), inner: K.mat(C.lining, { side: THREE.BackSide, rim: 0 }),
       colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.09, shin: 0.064, hip: 0.098, hipW: 0.078 }, pad: 0.012, clear: T,
-      shape: 0.025, maxDev: (t) => 0.01 + 0.4 * t, inertia: 0.45, wind: 0.6, gust: 0.45, stretch: 1, bend: 0.3,
+      shape: 0.009, maxDev: (t) => 0.01 + 0.75 * t, inertia: 0.82, wind: 0.72, gust: 0.45, stretch: 1, bend: 0.28,
     });
   }
 

@@ -50,7 +50,7 @@ export function buildScientist(K) {
     },
     colors: stripe, outer: K.mat('#ffffff', { vertexColors: true, side: THREE.DoubleSide, rim: 0.2 }), inner: null,
     colliders: ['torso'], colliderOpts: { torso: 0.124 }, pad: 0.004,
-    shape: 0.06, maxDev: (t) => 0.03 + 0.12 * t, inertia: 0.5, wind: 0.35, gust: 0.4, bend: 0.5,
+    shape: 0.035, maxDev: (t) => 0.03 + 0.2 * t, inertia: 0.68, wind: 0.45, gust: 0.4, bend: 0.5,
   });
 
   // Laborkittel oben: weit, offen mit Revers, Brusttasche, Ärmel bis zum Handgelenk
@@ -87,7 +87,7 @@ export function buildScientist(K) {
     },
     outer: K.mat(C.coat, { side: THREE.FrontSide, rim: 0.25 }), inner: K.mat(C.coatShade, { side: THREE.BackSide, rim: 0 }),
     colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.092, shin: 0.066, hip: 0.104, hipW: 0.078 }, pad: 0.014, clear: T,
-    shape: 0.035, maxDev: (t) => 0.01 + 0.25 * t, inertia: 0.5, wind: 0.5, gust: 0.35, bend: 0.35,
+    shape: 0.014, maxDev: (t) => 0.01 + 0.42 * t, inertia: 0.78, wind: 0.62, gust: 0.38, bend: 0.32,
   });
   hands(K, () => skin, { w: 1.08 });
 

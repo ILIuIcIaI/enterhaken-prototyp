@@ -99,7 +99,7 @@ export function buildMakoto(K) {
     },
     outer: K.mat(C.blazer, { side: THREE.FrontSide, rim: 0.4 }), inner: K.mat(C.lining, { side: THREE.BackSide, rim: 0 }),
     colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.088, hip: 0.096, hipW: 0.077 }, pad: 0.012, clear: T,
-    shape: 0.05, maxDev: (t) => 0.01 + 0.12 * t, inertia: 0.5, wind: 0.45, gust: 0.35, stretch: 1, bend: 0.4,
+    shape: 0.028, maxDev: (t) => 0.01 + 0.17 * t, inertia: 0.68, wind: 0.5, gust: 0.35, stretch: 1, bend: 0.4,
   });
   // Armbinde links: Radien am Ärmel gemessen (liegt eng an)
   const aL = A[0], along = 0.115;

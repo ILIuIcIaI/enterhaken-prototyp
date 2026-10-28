@@ -117,7 +117,7 @@ export function buildTwoB(K) {
     uvs: (r, c) => [(c / cols) * 3, 1 - r / (rows - 1)],
     outer: K.mat('#ffffff', { map: skirtMap, side: THREE.FrontSide, rim: 0.3 }), inner: K.mat(C.blackSoft, { side: THREE.BackSide, rim: 0 }),
     colliders: ['legs', 'hips'], colliderOpts: { thigh: 0.084, shin: 0.058, hip: 0.098, hipW: 0.065 }, pad: 0.012, clear: G.fn,
-    shape: 0.03, maxDev: (t) => 0.01 + 0.24 * t, inertia: 0.5, wind: 0.55, gust: 0.4, stretch: 1, bend: 0.3,
+    shape: 0.011, maxDev: (t) => 0.01 + 0.34 * t, inertia: 0.8, wind: 0.65, gust: 0.4, stretch: 1, bend: 0.28,
   });
   skirtMap.wrapS = THREE.RepeatWrapping;
 

@@ -3,6 +3,21 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.6.1] – 2026-10-28
+
+Patch: flowing clothes react much more to movement, and Steve is textured on all sides.
+
+### Changed
+- **Looser cloth physics for flowing clothes:** Zero's cape, 2B's skirt, Joker's coat tails, the Scientist's lab coat,
+  Zero's dress panels and long hair, Makima's braid, ties and bandana ends now lag behind, swing and flutter when
+  walking, running, jumping, gliding and swinging instead of moving almost rigidly with the body. At speed the cape
+  and coat tails stream backward; when falling, the skirt and cape lift a little. The gentle breeze stays as subtle
+  as before.
+
+### Fixed
+- **Steve's sides:** the left and right faces of his head, arms, torso and legs were turned inward and showed up as
+  dark, untextured surfaces. They now show the hair, skin, sleeves, jeans and shoes like the original.
+
 ## [0.6.0] – 2026-10-28
 
 Ten playable characters with a character select screen, cloth physics for coats, capes, skirts, ties and braids,
@@ -256,6 +271,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.6.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.6.0
 [0.5.2]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.2
 [0.5.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.1

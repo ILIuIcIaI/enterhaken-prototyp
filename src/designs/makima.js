@@ -84,7 +84,7 @@ export function buildMakima(K) {
     pinned: (r) => r === 0,
     outer: K.mat(C.tie, { side: THREE.DoubleSide, rim: 0.2 }), inner: null,
     colliders: ['torso'], colliderOpts: { torso: 0.088 }, pad: 0.004,
-    shape: 0.06, maxDev: (t) => 0.03 + 0.12 * t, inertia: 0.5, wind: 0.35, gust: 0.4, stretch: 1, bend: 0.5,
+    shape: 0.035, maxDev: (t) => 0.03 + 0.2 * t, inertia: 0.68, wind: 0.45, gust: 0.4, stretch: 1, bend: 0.5,
   });
 
   // Kopf: goldene Augen mit Ringen, sanftes Lächeln
@@ -127,6 +127,6 @@ export function buildMakima(K) {
     radius: (t, a) => (t > 0.9 ? 0.014 * (1 - (t - 0.9) * 6) + 0.005 : (0.03 - 0.01 * t) * (0.84 + 0.2 * Math.abs(Math.sin(a + t * 40)))),
     material: K.mat(C.hair, { rim: 0.3, rimColor: '#ffb08a' }),
     colliders: ['torso', 'shoulders'], colliderOpts: { torso: 0.1 }, pad: 0.02,
-    pinned: (r) => r === 0, shape: 0.02, maxDev: (t) => 0.06 + 0.3 * t, inertia: 0.45, wind: 0.4, gust: 0.3, bend: 0.6,
+    pinned: (r) => r === 0, shape: 0.011, maxDev: (t) => 0.06 + 0.45 * t, inertia: 0.76, wind: 0.5, gust: 0.3, bend: 0.55,
   });
 }

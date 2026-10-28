@@ -39,14 +39,14 @@ function pixelBox(w, h, d, faces, fill) {
     const x0 = -X + i * PX, x1 = x0 + PX, y0 = Y - j * PX, y1 = y0 - PX;
     return [[x0, y1, Z], [x1, y1, Z], [x1, y0, Z], [x0, y0, Z]];
   });
-  // rechts (+X) und links (−X): Spalte 0 vorne
+  // rechts (+X) und links (−X): Spalte 0 vorne (Umlaufsinn so, dass die Flächen nach außen zeigen)
   grid(faces.side, d, h, (i, j) => {
     const z0 = -Z + i * PX, z1 = z0 + PX, y0 = Y - j * PX, y1 = y0 - PX;
-    return [[X, y1, z0], [X, y1, z1], [X, y0, z1], [X, y0, z0]];
+    return [[X, y1, z1], [X, y1, z0], [X, y0, z0], [X, y0, z1]];
   });
   grid(faces.sideL ?? faces.side, d, h, (i, j) => {
     const z0 = -Z + i * PX, z1 = z0 + PX, y0 = Y - j * PX, y1 = y0 - PX;
-    return [[-X, y1, z1], [-X, y1, z0], [-X, y0, z0], [-X, y0, z1]];
+    return [[-X, y1, z0], [-X, y1, z1], [-X, y0, z1], [-X, y0, z0]];
   });
   grid(faces.top, w, d, (i, j) => {
     const x0 = X - i * PX, x1 = x0 - PX, z0 = -Z + j * PX, z1 = z0 + PX;
