@@ -304,13 +304,27 @@ const SLIDE = {
   upperArmL: [24, 0, -58], forearmL: [30, 0, 0], upperArmR: [-10, 0, 54], forearmR: [24, 0, 0],
   bob: -0.24,
 };
-const SWING_A = {
-  spine: [-4, 0, 0], chest: [-2, 0, 0], head: [12, 0, 0],
-  thighL: [28, 0, -4], shinL: [-40, 0, 0], footL: [-34, 0, 0],
-  thighR: [18, 0, 4], shinR: [-56, 0, 0], footR: [-34, 0, 0],
-  upperArmL: [72, 0, -18], forearmL: [34, 0, 0], upperArmR: [72, 0, 18], forearmR: [34, 0, 0],
+// Schwingen in drei Phasen (Zeit des Clips = Position im Bogen, siehe Character.update):
+// Abschwung – gestreckt, Beine hängen nach hinten; unten – Beine schwingen durch;
+// Aufschwung – Hüfte knickt, Beine schwingen nach vorn und oben, Knie beugen sich.
+const SWING_DOWN = {
+  spine: [7, 0, 0], chest: [6, 0, 0], neck: [4, 0, 0], head: [10, 0, 0],
+  thighL: [-16, 0, -4], shinL: [-28, 0, 0], footL: [-36, 0, 0],
+  thighR: [-6, 0, 5], shinR: [-46, 0, 0], footR: [-32, 0, 0],
+  upperArmL: [40, 0, -34], forearmL: [40, 0, 0], upperArmR: [40, 0, 34], forearmR: [40, 0, 0],
 };
-const SWING_B = { ...SWING_A, thighL: [16, 0, -4], shinL: [-52, 0, 0], thighR: [30, 0, 4], shinR: [-38, 0, 0], upperArmL: [66, 0, -20], upperArmR: [68, 0, 20] };
+const SWING_BOTTOM = {
+  spine: [-3, 0, 0], chest: [-2, 0, 0], head: [10, 0, 0],
+  thighL: [22, 0, -4], shinL: [-34, 0, 0], footL: [-30, 0, 0],
+  thighR: [12, 0, 4], shinR: [-52, 0, 0], footR: [-30, 0, 0],
+  upperArmL: [54, 0, -26], forearmL: [36, 0, 0], upperArmR: [54, 0, 26], forearmR: [36, 0, 0],
+};
+const SWING_UP = {
+  spine: [-14, 0, 0], chest: [-10, 0, 0], neck: [2, 0, 0], head: [16, 0, 0],
+  thighL: [66, 0, -6], shinL: [-72, 0, 0], footL: [-18, 0, 0],
+  thighR: [50, 0, 6], shinR: [-92, 0, 0], footR: [-22, 0, 0],
+  upperArmL: [70, 0, -22], forearmL: [44, 0, 0], upperArmR: [70, 0, 22], forearmR: [44, 0, 0],
+};
 const REEL = {
   spine: [-14, 0, 0], chest: [-18, 0, 0], head: [18, 0, 0],
   thighL: [84, 0, -6], shinL: [-108, 0, 0], footL: [-18, 0, 0],
@@ -372,7 +386,7 @@ export function createClips(baseY) {
     land: buildClip('land', [[0, CROUCH], [0.12, { ...CROUCH, bob: -0.22 }], [0.45, IDLE_R]], baseY, false),
     landHard: buildClip('landHard', [[0, HERO_LAND], [0.5, { ...HERO_LAND, bob: -0.4 }], [0.9, IDLE_R]], baseY, false),
     slide: buildClip('slide', [[0, SLIDE], [0.5, { ...SLIDE, bob: -0.26, chest: [-12, 20, 0] }], [1.0, SLIDE]], baseY),
-    swing: buildClip('swing', [[0, SWING_A], [0.8, SWING_B], [1.6, SWING_A]], baseY),
+    swing: buildClip('swing', [[0, SWING_DOWN], [0.5, SWING_BOTTOM], [1.0, SWING_UP]], baseY, false),
     reel: buildClip('reel', [[0, REEL], [0.25, { ...REEL, thighL: [80, 0, -6], thighR: [82, 0, 6] }], [0.5, REEL]], baseY),
     boost: buildClip('boost', [[0, BOOST], [0.25, { ...BOOST, thighL: [-14, 0, -4], thighR: [-8, 0, 4] }], [0.5, BOOST]], baseY),
     dash: buildClip('dash', [[0, lerpPose(TUCK, DASH, 0.4)], [0.09, DASH], [0.4, DASH], [0.6, lerpPose(DASH, FALL_A, 0.5)]], baseY, false),

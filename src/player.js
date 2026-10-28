@@ -40,6 +40,17 @@ function overlaps(p, b, hx, hy) {
   );
 }
 
+// Kontakte als wiederverwendete Objekte: Normale (aus dem Hindernis heraus) + Box
+const CONTACT_POOL = [];
+function contact(list, nx, ny, nz, box) {
+  let c = CONTACT_POOL[list.length];
+  if (!c) CONTACT_POOL.push((c = { n: new THREE.Vector3(), box: null }));
+  c.n.set(nx, ny, nz);
+  c.box = box;
+  list.push(c);
+  return c;
+}
+
 export class Player {
   constructor(city) {
     this.city = city;
@@ -466,9 +477,9 @@ export class Player {
 
   tryEnterWallrun(c, ctl) {
     const W = CONFIG.wallrun, b = c.box;
-    _n.set(c.axis === 0 ? c.sign : 0, 0, c.axis === 2 ? c.sign : 0);
+    _n.set(c.n.x, 0, c.n.z).normalize();
     const cd = this.wallCooldown;
-    if (cd.time > 0 && cd.box === b && cd.nx === _n.x && cd.nz === _n.z) return;
+    if (cd.time > 0 && cd.box === b && cd.nx * _n.x + cd.nz * _n.z > 0.95) return;
     if (b.maxY - b.minY < 3 || this.pos.y > b.maxY - 0.3) return;
 
     const vp = this.vPre;
@@ -504,18 +515,18 @@ export class Player {
     const G = CONFIG.gas;
     let ground = false, wallKeep = false, wallHit = null, bestImpact = -1;
     for (const c of this.contacts) {
-      if (c.axis === 1) {
-        if (c.sign > 0) ground = true;
+      if (Math.abs(c.n.y) > 0.5) {
+        if (c.n.y > 0) ground = true;
         continue;
       }
       if (this.state === 'wallrun') {
         const n = this.wall.n;
-        if ((c.axis === 0 && n.x === c.sign) || (c.axis === 2 && n.z === c.sign)) {
+        if (c.n.x * n.x + c.n.z * n.z > 0.95) {
           wallKeep = true;
           if (c.box) this.wall.box = c.box; // durchgehende Fassaden über mehrere Gebäude
         }
       } else if (c.box && !c.box.noWallrun) {
-        const impact = Math.abs(c.axis === 0 ? this.vPre.x : this.vPre.z);
+        const impact = Math.abs(this.vPre.x * c.n.x + this.vPre.z * c.n.z);
         if (impact > bestImpact) { bestImpact = impact; wallHit = c; }
       }
     }
@@ -562,41 +573,90 @@ export class Player {
       this.candidates,
     );
     this.contacts.length = 0;
+    const startFeet = p.y - hy;
     this.moveAxis(1, target.y - p.y, hy);
     this.moveAxis(0, target.x - p.x, hx);
     this.moveAxis(2, target.z - p.z, hx);
+    this.resolveRotated(startFeet);
     this.depenetrate();
+    this.groundContact();
   }
 
   moveAxis(axis, delta, ha) {
     const P = CONFIG.player, p = this.pos;
-    if (delta !== 0) {
-      const start = p.getComponent(axis);
-      p.setComponent(axis, start + delta);
-      for (const b of this.candidates) {
-        if (!overlaps(p, b, P.halfWidth, P.halfHeight)) continue;
-        const bmin = axis === 0 ? b.minX : axis === 1 ? b.minY : b.minZ;
-        const bmax = axis === 0 ? b.maxX : axis === 1 ? b.maxY : b.maxZ;
-        if (delta > 0 && start + ha <= bmin + 0.02) {
-          p.setComponent(axis, bmin - ha - EPS);
-          this.contacts.push({ axis, sign: -1, box: b });
-        } else if (delta < 0 && start - ha >= bmax - 0.02) {
-          p.setComponent(axis, bmax + ha + EPS);
-          this.contacts.push({ axis, sign: 1, box: b });
-        }
+    if (delta === 0) return;
+    const start = p.getComponent(axis);
+    p.setComponent(axis, start + delta);
+    for (const b of this.candidates) {
+      if (b.rot || !overlaps(p, b, P.halfWidth, P.halfHeight)) continue;
+      const bmin = axis === 0 ? b.minX : axis === 1 ? b.minY : b.minZ;
+      const bmax = axis === 0 ? b.maxX : axis === 1 ? b.maxY : b.maxZ;
+      if (delta > 0 && start + ha <= bmin + 0.02) {
+        p.setComponent(axis, bmin - ha - EPS);
+        contact(this.contacts, axis === 0 ? -1 : 0, axis === 1 ? -1 : 0, axis === 2 ? -1 : 0, b);
+      } else if (delta < 0 && start - ha >= bmax - 0.02) {
+        p.setComponent(axis, bmax + ha + EPS);
+        contact(this.contacts, axis === 0 ? 1 : 0, axis === 1 ? 1 : 0, axis === 2 ? 1 : 0, b);
       }
     }
-    if (axis === 1 && p.y - P.halfHeight < 0) {
-      p.y = P.halfHeight;
-      this.contacts.push({ axis: 1, sign: 1, box: null });
+  }
+
+  // Gedrehte Boxen (Häuser an geschwungenen Straßen, Viadukt): im lokalen System der Box auf dem
+  // kürzesten Weg herausschieben; von oben kommend landet man auf dem Dach.
+  resolveRotated(startFeet) {
+    const P = CONFIG.player, hx = P.halfWidth, hy = P.halfHeight, p = this.pos;
+    for (const b of this.candidates) {
+      const r = b.rot;
+      if (!r) continue;
+      if (p.y - hy >= b.maxY || p.y + hy <= b.minY) continue;
+      const ox = p.x - r.cx, oz = p.z - r.cz;
+      const lx = ox * r.c + oz * r.s, lz = -ox * r.s + oz * r.c;
+      const penX = r.hx + hx - Math.abs(lx), penZ = r.hz + hx - Math.abs(lz);
+      if (penX <= 0 || penZ <= 0) continue;
+      if (startFeet >= b.maxY - 0.05) {
+        p.y = b.maxY + hy + EPS;
+        contact(this.contacts, 0, 1, 0, b);
+        continue;
+      }
+      const penUp = b.maxY - (p.y - hy);
+      if (penUp < 0.35 && penUp < Math.min(penX, penZ)) {
+        p.y = b.maxY + hy + EPS; // kleine Stufe: hinaufsteigen
+        contact(this.contacts, 0, 1, 0, b);
+        continue;
+      }
+      if (penX < penZ) {
+        const sx = Math.sign(lx) || 1;
+        p.x += r.c * sx * (penX + EPS);
+        p.z += r.s * sx * (penX + EPS);
+        contact(this.contacts, r.c * sx, 0, r.s * sx, b);
+      } else {
+        const sz = Math.sign(lz) || 1;
+        p.x += -r.s * sz * (penZ + EPS);
+        p.z += r.c * sz * (penZ + EPS);
+        contact(this.contacts, -r.s * sz, 0, r.c * sz, b);
+      }
     }
+  }
+
+  // Boden aus dem Gelände (Strand, Hügel, Teiche); am Boden bleibt man bei kleinen Absätzen kleben.
+  groundContact() {
+    const hy = CONFIG.player.halfHeight, p = this.pos;
+    const gy = this.city.groundY(p.x, p.z);
+    const feet = p.y - hy;
+    if (feet < gy || (this.state === 'ground' && feet - gy < 0.3 && p.y - this.prevPos.y <= 0.02)) {
+      if (!this.contacts.some((c) => c.n.y > 0.5)) {
+        p.y = gy + hy;
+        contact(this.contacts, 0, 1, 0, null);
+      }
+    }
+    this.inWater = this.city.waterDepth(p.x, p.z, p.y - hy);
   }
 
   // Sicherheitsnetz: falls doch eine Überlappung bleibt, auf kürzestem Weg herausschieben.
   depenetrate() {
     const P = CONFIG.player, hx = P.halfWidth, hy = P.halfHeight, p = this.pos;
     for (const b of this.candidates) {
-      if (!overlaps(p, b, hx, hy)) continue;
+      if (b.rot || !overlaps(p, b, hx, hy)) continue;
       const pen = [
         [b.maxX - (p.x - hx), 0, 1], [(p.x + hx) - b.minX, 0, -1],
         [b.maxY - (p.y - hy), 1, 1], [(p.y + hy) - b.minY, 1, -1],
@@ -605,7 +665,7 @@ export class Player {
       let m = pen[0];
       for (const e of pen) if (e[0] < m[0]) m = e;
       p.setComponent(m[1], p.getComponent(m[1]) + m[2] * (m[0] + EPS));
-      this.contacts.push({ axis: m[1], sign: m[2], box: b });
+      contact(this.contacts, m[1] === 0 ? m[2] : 0, m[1] === 1 ? m[2] : 0, m[1] === 2 ? m[2] : 0, b);
     }
   }
 }

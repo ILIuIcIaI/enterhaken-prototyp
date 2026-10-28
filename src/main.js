@@ -12,6 +12,8 @@ import { AudioFX } from './audio.js';
 import { Particles, SpeedLines, AimMarker, Embers } from './effects.js';
 import { createTuning } from './tuning.js';
 import { Post } from './post.js';
+import { Traffic } from './traffic.js';
+import { Transit } from './transit.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -42,6 +44,9 @@ class Game {
     this.city = new City(CONFIG.world.seed);
     this.scene.add(this.city.mesh, this.city.decor);
     this.world = createWorld(renderer, this.scene, this.city);
+    this.traffic = new Traffic(this.scene, this.city, 150);
+    this.transit = new Transit(this.scene, this.city);
+    this.simTime = 0;
     this.post = new Post(renderer, this.scene, this.camera);
     this.embers = new Embers(this.scene);
     this.charEvents = [];
@@ -59,13 +64,14 @@ class Game {
     this.aimMarker = new AimMarker(this.scene);
     this.gui = createTuning(this);
 
-    this.aim = { hit: false, inRange: false, point: new THREE.Vector3(), normal: new THREE.Vector3(), distPlayer: 0 };
+    this.aim = { hit: false, inRange: false, point: new THREE.Vector3(), normal: new THREE.Vector3(), distPlayer: 0, mover: null, local: new THREE.Vector3() };
     this.renderPos = new THREE.Vector3();
     this.ctl = {
       move: { x: 0, z: 0 }, reel: false, sprint: false, jumpHeld: false,
       jumpPressed: false, dashPressed: false, glideToggle: false,
       camFwd: this.rig.forward, camRight: this.rig.right,
     };
+    this.hookInfo = this.hooks.map(() => ({ state: 'idle', taut: false, point: new THREE.Vector3() }));
     this.acc = 0;
     this.time = 0;
     this.last = null;
@@ -95,6 +101,9 @@ class Game {
 
   regenerateCity() {
     this.city.generate(CONFIG.world.seed);
+    this.world.rebuild();
+    this.traffic.build(this.city, 150);
+    this.transit.build(this.city);
     this.spawn();
   }
 
@@ -155,7 +164,8 @@ class Game {
   fireHook(hook) {
     const range = CONFIG.hook.range;
     const pp = this.player.pos;
-    this.hipPosition(hook.side, _hip);
+    // der Haken verlässt die Hand, die gleich zum Ziel stößt
+    this.character.joints[hook.side < 0 ? 'handL' : 'handR'].getWorldPosition(_hip);
     if (this.aim.hit && this.aim.inRange) {
       // Sichtlinie vom Spieler: steht etwas im Weg, greift der Haken dort.
       _v.subVectors(this.aim.point, pp);
@@ -163,6 +173,7 @@ class Game {
       _v.divideScalar(d);
       const block = this.city.raycast(pp, _v, d - 0.3);
       if (block) hook.fire(_hip, block.point, block.normal, true);
+      else if (this.aim.mover) hook.fire(_hip, this.aim.point, this.aim.normal, true, { mover: this.aim.mover, local: this.aim.local });
       else hook.fire(_hip, this.aim.point, this.aim.normal, true);
     } else {
       if (this.aim.hit) _w.copy(this.aim.point);
@@ -178,10 +189,15 @@ class Game {
     const maxD = CONFIG.hook.range + this.rig.dist + 10;
     const hit = this.city.raycast(this.camera.position, this.rig.forward, maxD, true);
     const a = this.aim;
-    a.hit = !!hit && !hit.ground;
+    // bewegte Ziele (Zug, Flugzeuge) zählen, wenn sie näher sind als das Getroffene
+    const mh = this.transit.raycast(this.camera.position, this.rig.forward, hit ? hit.dist : maxD + 400);
+    a.mover = mh ? mh.mover : null;
+    if (mh) a.local.copy(mh.local);
+    const h2 = mh ?? hit;
+    a.hit = !!h2 && !h2.ground;
     if (a.hit) {
-      a.point.copy(hit.point);
-      a.normal.copy(hit.normal);
+      a.point.copy(h2.point);
+      a.normal.copy(h2.normal);
       a.distPlayer = a.point.distanceTo(this.player.pos);
       a.inRange = a.distPlayer <= CONFIG.hook.range;
     } else {
@@ -194,7 +210,7 @@ class Game {
     if (!CONFIG.hook.wrap) return;
     const pp = this.player.pos;
     for (const h of this.hooks) {
-      if (h.state !== 'attached') continue;
+      if (h.state !== 'attached' || h.mover) continue;
       _v.subVectors(h.anchor, pp);
       const dist = _v.length();
       if (dist < 1) continue;
@@ -246,6 +262,8 @@ class Game {
       this.acc += dt * scale;
       let steps = 0;
       while (this.acc >= FIXED_DT && steps < 40) {
+        this.simTime += FIXED_DT;
+        this.transit.update(this.simTime, FIXED_DT);
         for (const h of this.hooks) h.step(FIXED_DT, player.pos);
         player.step(FIXED_DT, ctl, this.hooks);
         ctl.jumpPressed = ctl.dashPressed = ctl.glideToggle = false;
@@ -271,7 +289,10 @@ class Game {
     this.updateAim();
     this.updateCharacter(this.paused ? 0 : dt);
     if (!this.paused) for (const s of c.steps) this.audio.step(s);
-    for (const h of this.hooks) h.draw(dt, this.hipPosition(h.side, _hip).sub(player.pos).add(this.renderPos), this.time);
+    for (const h of this.hooks) {
+      this.hipPosition(h.side, _hip).sub(player.pos).add(this.renderPos);
+      h.draw(dt, c.ropeOrigin(h.side, _hip, _w), this.time);
+    }
     const pxScale = this.renderer.domElement.height / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2));
     this.particles.material.uniforms.uScale.value = pxScale;
     this.particles.update(this.paused ? 0 : dt);
@@ -279,6 +300,8 @@ class Game {
     this.aimMarker.update(this.aim, this.camera, this.time);
     this.world.update(this.renderPos, this.camera, this.time);
     this.city.updateDecor(this.time);
+    this.traffic.update(this.paused ? 0 : dt, this.player.state === 'ground' ? this.renderPos : null);
+    this.transit.render(this.simTime);
     this.hud.update(this);
     this.updateSpeedLines(dt);
     this.audio.update(this.paused ? 0 : player.vel.length(), {
@@ -449,7 +472,29 @@ class Game {
       _f.addScaledVector(_u, -_f.dot(_u)).normalize();
     }
     if (dt > 0) c.orient(_u, _f, dt, rate);
+
+    // Position im Schwungbogen: hinter dem Anker (Abschwung) = 0, darunter = 0.5, davor (Aufschwung) = 1
+    let swingPhase;
+    if (attached && p.state === 'air') {
+      _w.set(0, 0, 0);
+      let n = 0, len = 0;
+      for (const h of this.hooks) if (h.state === 'attached') { _w.add(h.anchor); len += h.length; n++; }
+      _w.divideScalar(n);
+      len /= n;
+      if (hs > 1) swingPhase = Math.min(1, Math.max(0, 0.5 + (((p.pos.x - _w.x) * v.x + (p.pos.z - _w.z) * v.z) / hs) / (1.2 * Math.max(4, len))));
+      else swingPhase = 0.5;
+    }
+    const hookInfo = this.hookInfo;
+    this.hooks.forEach((h, i) => {
+      const o = hookInfo[i];
+      o.state = h.state;
+      o.taut = h.taut;
+      o.point.copy(h.state === 'attached' ? h.anchor : h.target);
+    });
+
     c.update(dt, {
+      hooks: hookInfo,
+      swingPhase,
       state: p.state,
       speed: p.state === 'wallrun' ? Math.hypot(v.dot(p.wall.t), v.y) : v.length(),
       hspeed: hs,

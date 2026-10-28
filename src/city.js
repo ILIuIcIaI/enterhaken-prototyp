@@ -3,9 +3,12 @@ import { mulberry32 } from './rng.js';
 import { DUSK_GLSL } from './palette.js';
 import { gradientMap, toonMaterial } from './toon.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { Terrain } from './terrain.js';
+import { generateLayout } from './citygen.js';
 
-// Die Stadt besteht ausschließlich aus achsenparallelen Boxen (AABBs). Das hält Kollision und
-// Raycasts einfach und exakt; Fenster werden komplett im Shader erzeugt.
+// Die Stadt besteht aus Boxen: achsenparallel im Raster, um die Hochachse gedreht an geschwungenen
+// Straßen. Das hält Kollision und Raycasts einfach und exakt; Fenster entstehen komplett im Shader.
+// Den Stadtplan (Straßen, Parks, Wohnviertel, Bahntrasse) erzeugt citygen.js.
 
 // Fassadenfarben je Fensterstil (0 Glas, 1 Büro, 2 Wohnhaus) und Viertel
 const GLASS = ['#7a86a6', '#6b7898', '#8892b0', '#5f6a8c', '#909ab4', '#6f8fa0'];
@@ -13,13 +16,11 @@ const OFFICE = ['#a49aa8', '#928a9c', '#b2a8b0', '#837b8e', '#a8969a'];
 const BRICK = ['#7e4c4a', '#8f5450', '#6c4244', '#9a6258', '#844e52'];
 const WARM = ['#b0624c', '#c9b08a', '#c98a92', '#8fb5a0', '#c9a052', '#9a6258', '#b9a0c0'];
 const PASTEL = ['#d8a7a0', '#e0c79a', '#9fc3b5', '#c7a8d0', '#e8d4b0', '#a8c4d8', '#e0b0c0'];
+const ROOF = ['#7a3b34', '#5d3a3a', '#3f4656', '#6b4a3a', '#4c5a5e', '#8a4a38', '#4a3a4e'];
 const PROP_COLOR = '#5e5866';
 const NEON = ['#3ff0ff', '#ff3fd2', '#ffd23f', '#ff5a3f', '#8a5cff', '#3fff9a'];
 const CELL = 24;
 const COAST_F = [1, 2, 3, 5, 7, 11];
-
-// Blocktypen (auch für den Boden-Shader): 0 Wiese/leer, 1 bebaut, 2 Park, 3 Platz, 4 Park mit Teich
-export const BLOCK = { EMPTY: 0, BUILT: 1, PARK: 2, PLAZA: 3, POND: 4 };
 
 const pick = (arr, rand) => arr[Math.floor(rand() * arr.length)];
 
@@ -33,9 +34,8 @@ export class City {
     this.hit = { dist: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), box: null, ground: false };
     // gemeinsame Uniforms für Boden- und Wasser-Shader (werden bei jeder neuen Stadt aktualisiert)
     this.mapUniforms = {
-      uPitch: { value: 0 }, uBlock: { value: 0 }, uOrigin: { value: 0 }, uN: { value: 1 },
       uCoastR0: { value: 400 }, uCoastA: { value: new Array(6).fill(0) }, uCoastP: { value: new Array(6).fill(0) },
-      uBlockTex: { value: null },
+      uLayout: { value: null }, uLayoutExt: { value: 560 },
     };
     this.generate(seed);
   }
@@ -67,102 +67,76 @@ export class City {
     this.antennas = [];
     this.trees = [];
     this.waterTowers = [];
-    this.blockTypes = new Uint8Array(N * N);
+    this.houses = [];
+    this.terrain = new Terrain((x, z) => this.coastDist(x, z));
 
-    // Blöcke nur dort, wo alle Ecken genug Abstand zur Küste haben (Strand + Promenade bleiben frei)
-    const blocks = [];
-    for (let i = 0; i < N; i++) {
-      for (let j = 0; j < N; j++) {
-        const bx = this.layout.origin + i * P, bz = this.layout.origin + j * P;
-        const corner = Math.max(this.coastDist(bx, bz), this.coastDist(bx + B, bz), this.coastDist(bx, bz + B), this.coastDist(bx + B, bz + B));
-        const cx = bx + B / 2, cz = bz + B / 2;
-        const dn = Math.hypot(cx, cz) / this.coastR(cx, cz);
-        let zone = dn < 0.3 ? 'downtown' : dn < 0.58 ? 'midtown' : 'residential';
-        if (corner > -85) zone = 'waterfront';
-        if (corner > -50) {
-          this.trees.push(...this.scatterTrees(bx, bz, B, rand, 9, 0.45, false));
-          continue;
-        }
-        blocks.push({ i, j, bx, bz, zone });
-      }
-    }
-    // ein großer Stadtpark aus 2×2 Blöcken im mittleren Ring
-    const parkAng = rand() * Math.PI * 2;
-    const pr = this.coastR(Math.cos(parkAng), Math.sin(parkAng)) * 0.42;
-    const pi = Math.floor((Math.cos(parkAng) * pr - this.layout.origin) / P), pj = Math.floor((Math.sin(parkAng) * pr - this.layout.origin) / P);
-    const central = new Set([[pi, pj], [pi + 1, pj], [pi, pj + 1], [pi + 1, pj + 1]].map(([a, b]) => a * N + b));
-
-    for (const blk of blocks) {
-      const { i, j, bx, bz, zone } = blk;
-      const r = rand();
-      const parkChance = { downtown: 0.03, midtown: 0.08, residential: 0.15, waterfront: 0.1 }[zone];
-      const plazaChance = zone === 'downtown' || zone === 'midtown' ? 0.05 : 0.02;
-      let type = BLOCK.BUILT;
-      if (central.has(i * N + j)) type = i === pi + 1 && j === pj + 1 ? BLOCK.POND : BLOCK.PARK;
-      else if (r < parkChance) type = rand() < 0.3 ? BLOCK.POND : BLOCK.PARK;
-      else if (r < parkChance + plazaChance) type = BLOCK.PLAZA;
-      this.blockTypes[i * N + j] = type;
-      if (type === BLOCK.PARK || type === BLOCK.POND) {
-        this.trees.push(...this.scatterTrees(bx, bz, B, rand, 6.5, 0.85, type === BLOCK.POND));
-      } else if (type === BLOCK.PLAZA) {
-        this.addPlaza(bx, bz, B, rand);
-      } else {
-        for (const lot of this.splitBlock(bx, bz, B, rand, zone)) this.addBuilding(lot, zone, rand);
-        if ((zone === 'residential' || zone === 'waterfront') && rand() < 0.5) this.streetTrees(bx, bz, B, rand);
-      }
-    }
+    generateLayout(this, rand);
     this.promenade(rand);
 
     const mu = this.mapUniforms;
-    mu.uPitch.value = P; mu.uBlock.value = B; mu.uOrigin.value = this.layout.origin; mu.uN.value = N;
     mu.uCoastR0.value = this.island.r0;
     mu.uCoastA.value = [...this.island.a];
     mu.uCoastP.value = [...this.island.p];
-    if (mu.uBlockTex.value) mu.uBlockTex.value.dispose();
-    const tex = new THREE.DataTexture(this.blockTypes, N, N, THREE.RedFormat, THREE.UnsignedByteType);
-    tex.minFilter = tex.magFilter = THREE.NearestFilter;
-    tex.needsUpdate = true;
-    mu.uBlockTex.value = tex;
 
-    for (const t of this.trees) this.addBox(t.x - 0.25, 0, t.z - 0.25, t.x + 0.25, 2.6 * t.s, t.z + 0.25, { noRender: true, noWallrun: true, kind: 2, style: 3, seed: 0, color: new THREE.Color('#000') });
+    for (const t of this.trees) {
+      t.y = this.terrain.height(t.x, t.z);
+      this.addBox(t.x - 0.25, t.y, t.z - 0.25, t.x + 0.25, t.y + 2.6 * t.s, t.z + 0.25, { noRender: true, noWallrun: true, kind: 2, style: 3, seed: 0, color: new THREE.Color('#000') });
+    }
     this.buildIndex();
     this.buildMesh();
     this.buildDecor(rand);
   }
 
-  // Bäume locker verteilt (Wege und Teich bleiben frei); Kirschbäume für Farbtupfer
-  scatterTrees(bx, bz, B, rand, step, density, pond) {
-    const out = [];
-    for (let x = bx + 3; x < bx + B - 3; x += step) {
-      for (let z = bz + 3; z < bz + B - 3; z += step) {
-        if (rand() > density) continue;
-        const tx = x + (rand() - 0.5) * step * 0.7, tz = z + (rand() - 0.5) * step * 0.7;
-        const lx = tx - bx, lz = tz - bz;
-        if (Math.abs(lx - lz) < 3 || Math.abs(lx + lz - B) < 3) continue;
-        if (pond && Math.hypot(lx - B / 2, lz - B / 2) < 12) continue;
-        if (this.coastDist(tx, tz) > -40) continue;
-        out.push({ x: tx, z: tz, s: 0.8 + rand() * 0.6, sakura: rand() < 0.28 });
-      }
-    }
-    return out;
-  }
-
-  streetTrees(bx, bz, B, rand) {
-    for (let t = 6; t < B - 4; t += 11) {
-      for (const [x, z] of [[bx + t, bz + 1.2], [bx + t, bz + B - 1.2], [bx + 1.2, bz + t], [bx + B - 1.2, bz + t]]) {
-        if (rand() < 0.7) this.trees.push({ x, z, s: 0.7 + rand() * 0.3, sakura: rand() < 0.15 });
-      }
-    }
-  }
-
-  // Bäume entlang der Uferpromenade
+  // Bäume und Laternen entlang der Uferpromenade
   promenade(rand) {
     const n = 90;
     for (let k = 0; k < n; k++) {
       const a = (k / n) * Math.PI * 2 + 0.03;
-      const r = this.coastR(Math.cos(a), Math.sin(a)) - 44;
+      const r = this.coastR(Math.cos(a), Math.sin(a)) - 43;
       if (rand() < 0.75) this.trees.push({ x: Math.cos(a) * r, z: Math.sin(a) * r, s: 0.85 + rand() * 0.4, sakura: rand() < 0.2 });
     }
+    for (let k = 0; k < 72; k++) {
+      const a = (k / 72) * Math.PI * 2;
+      const r = this.coastR(Math.cos(a), Math.sin(a)) - 38.5;
+      this.lamps.push([Math.cos(a) * r, 0, Math.sin(a) * r, Math.cos(a), Math.sin(a)]);
+    }
+  }
+
+  // Gibt es hier schon etwas Festes (Gebäude, Haus, Kiosk)?
+  solidNear(x, z, r) {
+    const out = this.query(x - r, z - r, x + r, z + r, this._near ?? (this._near = []));
+    for (const b of out) {
+      if (b.noRender && !b.house) continue;
+      if (b.rot) {
+        const ox = x - b.rot.cx, oz = z - b.rot.cz;
+        const lx = ox * b.rot.c + oz * b.rot.s, lz = -ox * b.rot.s + oz * b.rot.c;
+        if (Math.abs(lx) < b.rot.hx + r && Math.abs(lz) < b.rot.hz + r) return true;
+      } else if (x > b.minX - r && x < b.maxX + r && z > b.minZ - r && z < b.maxZ + r) return true;
+    }
+    return false;
+  }
+
+  // Wohnhaus an geschwungener Straße oder Ringstraße: gedrehter Baukörper mit Satteldach (+ Schornstein)
+  addHouse(r, rand) {
+    const floors = r.zone === 'waterfront' ? 1 + (rand() < 0.55 ? 1 : 0) : 1 + Math.floor(rand() * 2.6);
+    const h = floors * 3.2 + 0.5;
+    const L = this.look(r.zone === 'waterfront' ? 'waterfront' : 'residential', rand);
+    L.style = 2;
+    this.addRotatedBox(r.cx, r.cz, r.hx, r.hz, r.a, 0, h, { ...L, noTop: true, house: true });
+    const roofH = 2.0 + rand() * 1.8;
+    const along = r.hx >= r.hz;
+    this.addRotatedBox(r.cx, r.cz, r.hx * 0.82, r.hz * 0.82, r.a, h, h + roofH * 0.55, { noRender: true, noWallrun: true, style: 3, kind: 2, seed: 0, color: L.color });
+    const house = { r, h, roofH, along, wall: L.color.clone(), roof: new THREE.Color(pick(ROOF, rand)).offsetHSL(0, 0, (rand() - 0.5) * 0.06) };
+    if (rand() < 0.45) {
+      // Schornstein seitlich der First, ragt aus der Dachfläche
+      const c = Math.cos(r.a), s = Math.sin(r.a);
+      const ha = along ? r.hx : r.hz, hb = (along ? r.hz : r.hx) + 0.4;
+      const ua = (rand() < 0.5 ? -1 : 1) * ha * 0.55, vb = (rand() < 0.5 ? -1 : 1) * hb * 0.4;
+      const lu = along ? ua : vb, lv = along ? vb : ua;
+      const top = h + roofH * (1 - Math.abs(vb) / hb) + 0.9;
+      this.addRotatedBox(r.cx + c * lu - s * lv, r.cz + s * lu + c * lv, 0.38, 0.38, r.a, h, top, { style: 3, kind: 2, seed: 0, color: new THREE.Color('#5a4a4c') });
+    }
+    this.houses.push(house);
   }
 
   splitBlock(bx, bz, B, rand, zone) {
@@ -364,6 +338,29 @@ export class City {
     return out;
   }
 
+  // Bodenhöhe für die Physik: Gelände, im Wasser steht man knietief auf dem Grund (waten)
+  groundY(x, z) {
+    const h = this.terrain.height(x, z);
+    const w = this.terrain.waterLevel(x, z);
+    return w > h ? Math.max(h, w - 0.55) : h;
+  }
+
+  // Wassertiefe an den Füßen (0 = trocken)
+  waterDepth(x, z, feetY) {
+    const w = this.terrain.waterLevel(x, z);
+    return w > feetY ? w - feetY : 0;
+  }
+
+  // Gedrehte Box (Häuser an geschwungenen Straßen, Viaduktsegmente). Achse x der Box zeigt in
+  // Richtung (cos a, sin a); die umschließende AABB dient dem Raster-Index und der Grobprüfung.
+  addRotatedBox(cx, cz, hx, hz, a, y0, y1, info) {
+    const c = Math.cos(a), s = Math.sin(a);
+    const ex = Math.abs(c) * hx + Math.abs(s) * hz, ez = Math.abs(s) * hx + Math.abs(c) * hz;
+    const b = this.addBox(cx - ex, y0, cz - ez, cx + ex, y1, cz + ez, info);
+    b.rot = { cx, cz, c, s, hx, hz };
+    return b;
+  }
+
   // Strahl gegen alle Gebäude (und optional den Boden). Gibt ein wiederverwendetes Ergebnisobjekt zurück.
   raycast(origin, dir, maxDist, includeGround = false) {
     const ox = origin.x, oy = origin.y, oz = origin.z;
@@ -371,8 +368,13 @@ export class City {
     const dy = Math.abs(dir.y) < 1e-9 ? 1e-9 : dir.y;
     const dz = Math.abs(dir.z) < 1e-9 ? 1e-9 : dir.z;
     const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
-    let best = maxDist, bestBox = null, bestAxis = -1;
+    let best = maxDist, bestBox = null, bestAxis = -1, bestN = null;
     for (const b of this.boxes) {
+      if (b.rot) {
+        const t = this.rayRotated(b, ox, oy, oz, dx, dy, dz, best);
+        if (t !== null) { best = t; bestBox = b; bestAxis = 3; bestN = this._rn; }
+        continue;
+      }
       let t1 = (b.minX - ox) * ix, t2 = (b.maxX - ox) * ix;
       let tmin = t1 < t2 ? t1 : t2, tmax = t1 < t2 ? t2 : t1, axis = 0;
       t1 = (b.minY - oy) * iy; t2 = (b.maxY - oy) * iy;
@@ -389,16 +391,67 @@ export class City {
     }
     let ground = false;
     if (includeGround && dy < 0) {
-      const tg = -oy / dy;
-      if (tg >= 0 && tg < best) { best = tg; bestBox = null; ground = true; }
+      const tg = this.rayGround(ox, oy, oz, dx, dy, dz, best);
+      if (tg !== null) { best = tg; bestBox = null; ground = true; }
     }
     if (!bestBox && !ground) return null;
     const h = this.hit;
     h.dist = best; h.box = bestBox; h.ground = ground;
     h.point.set(ox + dir.x * best, oy + dir.y * best, oz + dir.z * best);
     if (ground) h.normal.set(0, 1, 0);
+    else if (bestAxis === 3) h.normal.copy(bestN);
     else h.normal.set(bestAxis === 0 ? -Math.sign(dx) : 0, bestAxis === 1 ? -Math.sign(dy) : 0, bestAxis === 2 ? -Math.sign(dz) : 0);
     return h;
+  }
+
+  // Strahl gegen eine gedrehte Box: im lokalen System der Box als Slab-Test
+  rayRotated(b, ox, oy, oz, dx, dy, dz, best) {
+    const r = b.rot;
+    const px = ox - r.cx, pz = oz - r.cz;
+    const lx = px * r.c + pz * r.s, lz = -px * r.s + pz * r.c;
+    let ldx = dx * r.c + dz * r.s, ldz = -dx * r.s + dz * r.c;
+    if (Math.abs(ldx) < 1e-9) ldx = 1e-9;
+    if (Math.abs(ldz) < 1e-9) ldz = 1e-9;
+    let t1 = (-r.hx - lx) / ldx, t2 = (r.hx - lx) / ldx;
+    let tmin = Math.min(t1, t2), tmax = Math.max(t1, t2), axis = 0;
+    t1 = (b.minY - oy) / dy; t2 = (b.maxY - oy) / dy;
+    let lo = Math.min(t1, t2), hi = Math.max(t1, t2);
+    if (lo > tmin) { tmin = lo; axis = 1; }
+    if (hi < tmax) tmax = hi;
+    if (tmax < tmin) return null;
+    t1 = (-r.hz - lz) / ldz; t2 = (r.hz - lz) / ldz;
+    lo = Math.min(t1, t2); hi = Math.max(t1, t2);
+    if (lo > tmin) { tmin = lo; axis = 2; }
+    if (hi < tmax) tmax = hi;
+    if (tmax < tmin || tmin < 0 || tmin >= best) return null;
+    const n = (this._rn ??= new THREE.Vector3());
+    if (axis === 1) n.set(0, -Math.sign(dy), 0);
+    else if (axis === 0) { const s = -Math.sign(ldx); n.set(r.c * s, 0, r.s * s); }
+    else { const s = -Math.sign(ldz); n.set(-r.s * s, 0, r.c * s); }
+    return tmin;
+  }
+
+  // Strahl gegen das Gelände: grob abtasten, dann per Bisektion verfeinern
+  rayGround(ox, oy, oz, dx, dy, dz, maxT) {
+    const f = (t) => oy + dy * t - this.groundY(ox + dx * t, oz + dz * t);
+    if (f(0) <= 0) return 0;
+    const flat = -oy / dy; // Schnitt mit y = 0 als Startschätzung (Stadt ist flach)
+    const end = Math.min(maxT, Math.max(flat * 1.6, flat + 40, 60));
+    let t0 = 0;
+    for (let i = 1; i <= 24; i++) {
+      const t1 = (end * i) / 24;
+      if (f(t1) <= 0) return this._refine(f, t0, t1);
+      t0 = t1;
+    }
+    return null;
+  }
+
+  _refine(f, a, b) {
+    for (let k = 0; k < 14; k++) {
+      const m = (a + b) / 2;
+      if (f(m) > 0) a = m; else b = m;
+    }
+    return b;
   }
 
   // ---------------------------------------------------------------- Mesh
@@ -429,9 +482,27 @@ export class City {
 
     for (const b of visible) {
       const { minX: x0, minY: y0, minZ: z0, maxX: x1, maxY: y1, maxZ: z1 } = b;
-      const wx = x1 - x0, wz = z1 - z0;
       const side = b.kind === 2 ? 2 : 0;
       const roof = b.kind === 2 ? 2 : 1;
+      if (b.rot) {
+        // gedrehte Box: vier Seiten mit gedrehten Normalen, Fassadenkoordinaten wie bei achsenparallelen
+        const { cx, cz, c, s, hx, hz } = b.rot;
+        for (const [lx, lz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          const nx = lx * c - lz * s, nz = lx * s + lz * c;
+          const hn = lx ? hx : hz, ht = lx ? hz : hx;
+          const tx = nz, tz = -nx; // cross(up, n)
+          const mx = cx + nx * hn, mz = cz + nz * hn;
+          const ax = mx - tx * ht, az = mz - tz * ht, bx2 = mx + tx * ht, bz2 = mz + tz * ht;
+          quad([ax, y0, az, bx2, y0, bz2, bx2, y1, bz2, ax, y1, az], nx, 0, nz, [0, y0, ht * 2, y0, ht * 2, y1, 0, y1], b, ht * 2, side);
+        }
+        if (!b.noTop) {
+          const P = [[-hx, hz], [hx, hz], [hx, -hz], [-hx, -hz]].map(([u, w]) => [cx + c * u - s * w, cz + s * u + c * w]);
+          quad([P[0][0], y1, P[0][1], P[1][0], y1, P[1][1], P[2][0], y1, P[2][1], P[3][0], y1, P[3][1]], 0, 1, 0,
+            [P[0][0], P[0][1], P[1][0], P[1][1], P[2][0], P[2][1], P[3][0], P[3][1]], b, hx * 2, roof);
+        }
+        continue;
+      }
+      const wx = x1 - x0, wz = z1 - z0;
       quad([x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1], 1, 0, 0, [0, y0, wz, y0, wz, y1, 0, y1], b, wz, side);
       quad([x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0], -1, 0, 0, [0, y0, wz, y0, wz, y1, 0, y1], b, wz, side);
       quad([x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1], 0, 0, 1, [0, y0, wx, y0, wx, y1, 0, y1], b, wx, side);
@@ -546,7 +617,7 @@ export class City {
     const blob = (r, x, y, z) => new THREE.IcosahedronGeometry(r, 1).translate(x, y, z);
     const crownGeo = mergeGeometries([blob(1.7, 0, 4.1, 0), blob(1.3, 1.0, 3.6, 0.5), blob(1.25, -0.9, 3.7, -0.5), blob(1.1, 0.2, 4.9, -0.3)]);
     const greens = ['#3f6b45', '#4d7a4a', '#5a7f3c', '#2f5a43', '#46704f'], pinks = ['#e8a0b8', '#f0b8c8', '#d890b0'];
-    const treeFill = (t) => { p.set(t.x, 0, t.z); q.setFromAxisAngle(Y, t.x * 0.37 + t.z); s.setScalar(t.s); };
+    const treeFill = (t) => { p.set(t.x, t.y ?? 0, t.z); q.setFromAxisAngle(Y, t.x * 0.37 + t.z); s.setScalar(t.s); };
     const trunks = inst(new THREE.CylinderGeometry(0.16, 0.24, 3, 7).translate(0, 1.5, 0), toonMaterial('#4a3530', { rim: 0 }), this.trees, treeFill);
     const crowns = inst(crownGeo, toonMaterial('#ffffff', { rim: 0.25 }), this.trees.map((t) => ({ ...t, color: new THREE.Color(pick(t.sakura ? pinks : greens, rand)) })), treeFill);
     trunks.castShadow = crowns.castShadow = true;
@@ -557,26 +628,14 @@ export class City {
     const tanks = inst(towerGeo, toonMaterial('#6a5048', { rim: 0.2 }), this.waterTowers, (t) => { p.set(t.x, t.y, t.z); q.identity(); s.set(t.r, 1, t.r); });
     tanks.castShadow = true;
 
-    // Straßenlaternen an bebauten Blöcken, Parks und Plätzen sowie entlang der Promenade
-    const { N, B, P, origin } = this.layout;
-    const spots = [];
-    for (let i = 0; i < N; i++) {
-      for (let j = 0; j < N; j++) {
-        if (this.blockTypes[i * N + j] === BLOCK.EMPTY) continue;
-        const bx = origin + i * P, bz = origin + j * P;
-        for (const f of [0.22, 0.78]) {
-          spots.push([bx + B * f, bz + 1.0, 0, -1], [bx + B * f, bz + B - 1.0, 0, 1], [bx + 1.0, bz + B * f, -1, 0], [bx + B - 1.0, bz + B * f, 1, 0]);
-        }
-      }
-    }
-    for (let k = 0; k < 72; k++) {
-      const a = (k / 72) * Math.PI * 2;
-      const r = this.coastR(Math.cos(a), Math.sin(a)) - 38.5;
-      spots.push([Math.cos(a) * r, Math.sin(a) * r, Math.cos(a), Math.sin(a)]);
-    }
-    const lampFill = (off, y) => ([x, z, dx, dz]) => {
+    // Dächer der Wohnhäuser: Satteldach mit Überstand, Giebel in Wandfarbe
+    this.decor.add(this.buildRoofs());
+
+    // Straßenlaternen entlang aller Straßen, der Parkwege und der Promenade: [x, y, z, Richtung zur Straße]
+    const spots = this.lamps;
+    const lampFill = (off, y) => ([x, y0, z, dx, dz]) => {
       q.setFromAxisAngle(Y, Math.atan2(dx, dz));
-      p.set(x + dx * off, y, z + dz * off);
+      p.set(x + dx * off, y0 + y, z + dz * off);
       s.set(1, 1, 1);
     };
     const lampMat = toonMaterial('#262230', { rim: 0 });
@@ -590,6 +649,47 @@ export class City {
     );
     poles.castShadow = true;
     pools.renderOrder = 1;
+  }
+
+  buildRoofs() {
+    const pos = [], col = [];
+    const tri = (a, b, c, color) => {
+      pos.push(...a, ...b, ...c);
+      for (let k = 0; k < 3; k++) col.push(color.r, color.g, color.b);
+    };
+    const shade = new THREE.Color();
+    for (const H of this.houses) {
+      const { cx, cz, hx, hz, a } = H.r;
+      const c = Math.cos(a), s = Math.sin(a);
+      // lokales System mit First entlang u
+      const ha = H.along ? hx : hz, hb = H.along ? hz : hx;
+      const A = ha + 0.35, Bw = hb + 0.45, y0 = H.h - 0.12, y1 = H.h + H.roofH;
+      const w = (u, v, y) => {
+        const lu = H.along ? u : v, lv = H.along ? v : -u;
+        return [cx + c * lu - s * lv, y, cz + s * lu + c * lv];
+      };
+      const e = [w(-A, -Bw, y0), w(A, -Bw, y0), w(A, Bw, y0), w(-A, Bw, y0)];
+      const rA = w(-A, 0, y1), rB = w(A, 0, y1);
+      shade.copy(H.roof);
+      tri(e[3], e[2], rB, shade); tri(e[3], rB, rA, shade);
+      shade.copy(H.roof).multiplyScalar(0.82);
+      tri(e[1], e[0], rA, shade); tri(e[1], rA, rB, shade);
+      // Giebel (Wandfarbe) bündig mit der Fassade
+      const g0 = [w(-ha, -hb, H.h - 0.15), w(-ha, hb, H.h - 0.15), w(-ha, 0, y1 - (H.roofH * 0.35) / Bw)];
+      const g1 = [w(ha, hb, H.h - 0.15), w(ha, -hb, H.h - 0.15), w(ha, 0, y1 - (H.roofH * 0.35) / Bw)];
+      tri(g0[0], g0[1], g0[2], H.wall);
+      tri(g1[0], g1[1], g1[2], H.wall);
+      // Unterseite des Überstands
+      shade.copy(H.roof).multiplyScalar(0.45);
+      tri(e[0], e[1], e[2], shade); tri(e[0], e[2], e[3], shade);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.computeVertexNormals();
+    const mesh = new THREE.Mesh(geo, toonMaterial('#ffffff', { vertexColors: true, rim: 0.15 }));
+    mesh.castShadow = mesh.receiveShadow = true;
+    return mesh;
   }
 
   updateDecor(time) {

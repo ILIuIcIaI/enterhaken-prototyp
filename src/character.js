@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 import { toonMaterial, outlineMaterial } from './toon.js';
-import { createClips, GAITS } from './animations.js';
+import { createClips, GAITS, JOINTS } from './animations.js';
+import { Inertializer, LimbSpring, ArmAim } from './motion.js';
 import { tubeGeometry, skirtGeometry, headGeometry, withColor } from './charGeo.js';
 import { smin, smax, sdEllipsoid, sdRoundCone, sdRoundBox, sdTorus, ConeSet, polygonize, paint, skin } from './sdf.js';
 import { CONFIG } from './config.js';
@@ -291,7 +292,7 @@ export class Character {
         a.setLoop(THREE.LoopOnce, 1);
         a.clampWhenFinished = true;
       }
-      if (GAIT_ORDER.includes(name)) a.setEffectiveTimeScale(0); // Phase wird synchron gesteuert
+      if (GAIT_ORDER.includes(name) || name === 'swing') a.setEffectiveTimeScale(0); // Phase wird von außen gesteuert
       a.setEffectiveWeight(name === 'idle' ? 1 : 0);
       a.play();
       this.actions[name] = a;
@@ -307,6 +308,39 @@ export class Character {
     this.spring = { hair: 0, hairV: 0, side: 0, sideV: 0, hem: 0, hemV: 0, lastYaw: 0 };
     this.wingDeploy = 0;
     this.buildWings();
+
+    // Prozedurale Ebenen: weiche Übergänge, nachschwingende Gliedmaßen, Greifarme
+    const J = this.joints;
+    const animated = [J.model, ...JOINTS.map((n) => J[n])];
+    this.basePose = { nodes: animated, q: animated.map((n) => n.quaternion.clone()), p: animated.map((n) => n.position.clone()) };
+    this.inert = new Inertializer(animated);
+    this.poseKey = '';
+    this.limbW = 0;
+    this.limbs = [];
+    for (const k of ['L', 'R']) {
+      this.limbs.push(
+        new LimbSpring(J['thigh' + k], J['shin' + k], { k: 140, zeta: 0.45, max: 0.45, gravity: 0.4 }),
+        new LimbSpring(J['shin' + k], J['foot' + k], { k: 170, zeta: 0.5, max: 0.35, gravity: 0.3 }),
+      );
+    }
+    this.armSprings = [];
+    for (const k of ['L', 'R']) {
+      this.armSprings.push([
+        new LimbSpring(J['upperArm' + k], J['forearm' + k], { k: 130, zeta: 0.34, max: 0.6, gravity: 0.35 }),
+        new LimbSpring(J['forearm' + k], J['hand' + k], { k: 160, zeta: 0.38, max: 0.45, gravity: 0.3 }),
+      ]);
+    }
+    this.chestSpring = new LimbSpring(J.chest, J.neck, { k: 260, zeta: 0.5, max: 0.16, gravity: 0.2 });
+    this.arms = [new ArmAim(J, -1), new ArmAim(J, 1)];
+    this.swingPhase = 0.5;
+  }
+
+  // Startpunkt des Seils: aus der Hand, sobald der Arm zum Haken zeigt, sonst aus der Hüftausrüstung
+  ropeOrigin(side, hip, out) {
+    const arm = this.arms[side < 0 ? 0 : 1];
+    if (arm.w < 0.01) return out.copy(hip);
+    arm.ha.getWorldPosition(out);
+    return out.lerp(hip, 1 - arm.w);
   }
 
   // ------------------------------------------------------------------ Modell
@@ -709,12 +743,28 @@ export class Character {
     else if (info.vy < -24) T.fallFast = 1;
     else T.fall = 1;
 
-    const k = 1 - Math.exp(-dt / (this.oneShot ? 0.07 : 0.15));
+    // Jeder Wechsel des führenden Clips (außer innerhalb der Gangarten) startet eine Trägheitsüberblendung
+    let lead = 'idle', leadW = -1;
+    for (const [n, w] of Object.entries(T)) if (w > leadW) { lead = n; leadW = w; }
+    if (lead === 'idle' || GAIT_ORDER.includes(lead)) lead = 'loco';
+    // Die Gewichte springen dabei direkt auf die neue Pose; den weichen Weg dorthin übernimmt allein
+    // die Überblendung (eine zusätzliche Kreuzblende würde am Anfang wieder einen Ruck erzeugen).
+    const key = `${info.state}|${lead}`;
+    let k = 1 - Math.exp(-dt / 0.13);
+    if (key !== this.poseKey) {
+      const fromShot = ONE_SHOTS.includes(this.poseKey.split('|')[1]);
+      this.inert.trigger(this.oneShot ? (this.oneShot === 'dash' || this.oneShot === 'jump' ? 0.18 : 0.24) : fromShot ? 0.36 : 0.32);
+      this.poseKey = key;
+      k = 1;
+    }
     for (const name of Object.keys(this.actions)) {
       const w = this.weights[name] + ((T[name] ?? 0) - this.weights[name]) * k;
       this.weights[name] = w;
       this.actions[name].setEffectiveWeight(w);
     }
+    // Schwing-Pose folgt der Position im Bogen (0 Abschwung, 0.5 unten, 1 Aufschwung)
+    if (info.swingPhase !== undefined) this.swingPhase += (info.swingPhase - this.swingPhase) * (1 - Math.exp(-6 * dt));
+    this.actions.swing.time = clamp(this.swingPhase, 0, 0.999) * this.clips.swing.duration;
 
     // Gang-Phase: alle Zyklen laufen synchron, Kadenz = Tempo / Schrittlänge (keine rutschenden Füße)
     const prev = this.phase;
@@ -726,10 +776,57 @@ export class Character {
     for (const n of GAIT_ORDER) this.actions[n].time = this.phase * GAITS[n].cycle;
     if (this.weights.wallrun > 0.01) this.actions.wallrun.setEffectiveTimeScale(clamp(info.speed / 24, 0.8, 1.6));
 
+    // Der Mixer schreibt ein Gelenk nur, wenn sich sein Clip-Wert seit dem letzten Mal geändert hat.
+    // Darum vorher die reine Clip-Pose wiederherstellen – sonst summieren sich die prozeduralen Ebenen
+    // bei ruhigen Posen von Frame zu Frame auf.
+    const base = this.basePose;
+    for (let i = 0; i < base.nodes.length; i++) {
+      base.nodes[i].quaternion.copy(base.q[i]);
+      base.nodes[i].position.copy(base.p[i]);
+    }
     this.mixer.update(dt);
+    for (let i = 0; i < base.nodes.length; i++) {
+      base.q[i].copy(base.nodes[i].quaternion);
+      base.p[i].copy(base.nodes[i].position);
+    }
     this.postProcess(dt, info);
+    this.inert.apply(dt);
     this.root.updateMatrixWorld(true);
+    this.secondary(dt, info);
     this.updateWings(dt, info.gliding);
+  }
+
+  // Nachschwingen von Beinen, Armen und Oberkörper, dann Greifarme; je Zustand unterschiedlich stark.
+  // Am Boden aus (die Gangzyklen sollen exakt bleiben), beim Schwingen am stärksten.
+  secondary(dt, info) {
+    const J = this.joints;
+    let target = 0;
+    if (this.oneShot === 'flip' || this.oneShot === 'landHard' || this.oneShot === 'pivot') target = 0;
+    else if (info.state === 'ground') target = 0;
+    else if (info.state === 'wallrun') target = 0.25;
+    else if (info.swinging) target = info.reeling ? 0.6 : 1;
+    else if (info.gliding) target = 0.3;
+    else if (info.boosting || this.oneShot === 'dash') target = 0.45;
+    else target = 0.8;
+    this.limbW += (target - this.limbW) * (1 - Math.exp(-(target > this.limbW ? 3 : 6) * dt));
+    const g = CONFIG.physics.gravity;
+    const w = this.limbW;
+    for (const s of this.limbs) s.apply(dt, w, g);
+    this.chestSpring.apply(dt, w * 0.8, g);
+    const hooks = info.hooks ?? [];
+    for (let i = 0; i < 2; i++) {
+      const free = 1 - this.arms[i].w;
+      for (const s of this.armSprings[i]) s.apply(dt, w * free, g);
+    }
+    for (let i = 0; i < 2; i++) this.arms[i].update(dt, hooks[i]);
+
+    // Rockhälften folgen den Oberschenkeln (gegen Durchdringen), flattern in der Luft
+    const ground = info.state === 'ground';
+    const speedF = Math.min(1, info.speed / 30);
+    const fl = ground ? 0 : Math.sin(this.time * 21) * 0.06 * speedF;
+    J.skirtL.rotation.x = clamp(J.thighL.rotation.x * 0.45, -0.2, 0.9) + fl;
+    J.skirtR.rotation.x = clamp(J.thighR.rotation.x * 0.45, -0.2, 0.9) - fl;
+    this.root.updateMatrixWorld(true);
   }
 
   // Prozedurale Ebene über den Clips: Drehung einleiten, Blick, Haare, Rock und Jackensaum.
@@ -786,11 +883,6 @@ export class Character {
     sp.hemV += ((hemT - sp.hem) * 90 - sp.hemV * 11) * dt;
     sp.hem += sp.hemV * dt;
     this.springNodes.hem.rotation.x = sp.hem + Math.sin(this.time * 19) * 0.04 * speedF;
-
-    // Rockhälften folgen den Oberschenkeln (gegen Durchdringen), flattern in der Luft
-    const fl = ground ? 0 : Math.sin(this.time * 21) * 0.06 * speedF;
-    J.skirtL.rotation.x = clamp(J.thighL.rotation.x * 0.45, -0.2, 0.9) + fl;
-    J.skirtR.rotation.x = clamp(J.thighR.rotation.x * 0.45, -0.2, 0.9) - fl;
   }
 }
 

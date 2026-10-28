@@ -10,6 +10,7 @@ const _p = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const UP = new THREE.Vector3(0, 1, 0);
+const _qi = new THREE.Quaternion();
 
 // Ein Enterhaken: fliegt als Projektil zum Ziel, hängt dann als Seil mit fester Länge.
 export class Hook {
@@ -47,7 +48,8 @@ export class Hook {
     this.material.resolution.set(w, h);
   }
 
-  fire(from, target, normal, willHit) {
+  // attach: { mover, local } für bewegte Ziele (Zug, Flugzeug) – Ziel und Anker wandern dann mit
+  fire(from, target, normal, willHit, attach = null) {
     this.state = 'flying';
     this.head.copy(from);
     this.target.copy(target);
@@ -55,16 +57,31 @@ export class Hook {
     this.willHit = willHit;
     this.taut = false;
     this.flyTime = 0;
+    this.mover = attach ? attach.mover : null;
+    if (attach) {
+      this.local = (this.local ?? new THREE.Vector3()).copy(attach.local);
+      this.localN = (this.localN ?? new THREE.Vector3()).copy(normal).applyQuaternion(_qi.copy(attach.mover.quat).invert());
+    }
+  }
+
+  // Anker/Ziel auf dem bewegten Objekt nachführen
+  follow() {
+    if (!this.mover) return;
+    this.mover.worldPoint(this.local, this.state === 'attached' ? this.anchor : this.target);
+    this.normal.copy(this.localN).applyQuaternion(this.mover.quat);
   }
 
   release() {
+    if (this.state === 'attached') this.head.copy(this.anchor);
     if (this.state === 'flying' || this.state === 'attached') this.state = 'retracting';
+    this.mover = null;
     this.taut = false;
     this.tension = 0;
   }
 
   // Physik-Takt: Projektilflug und Einhaken.
   step(dt, playerPos) {
+    this.follow();
     if (this.state !== 'flying') return;
     this.flyTime += dt;
     const travel = CONFIG.hook.speed * dt;

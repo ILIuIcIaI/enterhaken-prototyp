@@ -3,6 +3,51 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.5.0] – 2026-10-28
+
+Smoother, livelier animations with a real grappling arm, a far less grid-like city with curved residential
+streets and organic parks, 3D water, a sloping beach, traffic, an elevated train and airplanes you can hook onto.
+
+### Added
+- **Grappling arm:** firing a hook thrusts the arm toward the target; while attached, the hand holds the rope and
+  the arm follows it the whole time (almost straight when taut, slightly bent when slack, a short jolt when the
+  rope snaps tight). The rope now starts at the hand.
+- **Secondary motion:** legs, free arms and the upper body swing along with the body's acceleration and rotation
+  (damped springs with limited range), strongest while swinging, off on the ground.
+- **Phase-driven swing pose:** stretched on the downswing, legs swinging through at the bottom, hips bending and legs
+  kicking forward on the upswing.
+- **Curved residential streets:** superblocks with S-curves, bends and loops, front yards, garden trees and
+  houses with gabled roofs (some with chimneys) that face the street. Buildings can now be rotated, including
+  collision, raycasts and wall runs.
+- **Coastal ring road** with connections to the grid and a row of houses on the land side.
+- **Organic parks** that spill across block borders, with winding paths, gentle hills, groves and open lawns;
+  ponds sit in real hollows.
+- **Terrain:** the beach slopes down to the water behind a low sea wall, the sea floor drops off, park hills and pond
+  hollows are walkable; wading into the water is possible.
+- **3D water:** the sea is a wave mesh around the camera (four Gerstner waves plus surf that rolls up the beach),
+  clearer in the shallows, with foam at the shore and on breaking crests; ponds with small ripples and lily pads.
+- **Traffic:** about 150 cars (sedans, hatchbacks, vans, taxis) and buses in many colors, driving on the right with
+  headlights and taillights. They keep their distance, stop at traffic lights (each approach has its own green
+  phase, so paths never cross), wait at junctions without lights and brake for Kaia on the road.
+- **Traffic lights** with green, amber and red at every signalized approach; crosswalks, stop lines and center lines
+  on all streets, including curved ones.
+- **Elevated train:** a curved viaduct loop through the city with two covered stations; the train speeds up, brakes
+  and stops at each station.
+- **Airplanes:** three planes fly wide, calm loops over the island, each in its own altitude band above the
+  buildings, banking into turns, with navigation lights and strobes.
+- **Hooking onto moving targets:** the train cars and the airplanes can be hooked; the anchor stays on the vehicle
+  and Kaia gets towed along.
+
+### Changed
+- **Animation transitions:** every switch between animations now uses inertialization – the offset to the previous
+  pose decays smoothly, so transitions are continuous in position and speed without anything lagging behind.
+- Ground rendering uses a ground map texture for roads, sidewalks, lawns, paths and markings instead of a fixed grid.
+- Streets only exist where the city needs them; open areas at the edge of the city are meadows with trees.
+
+### Fixed
+- Procedural pose adjustments (look direction, turning, springs) could add up from frame to frame during calm poses,
+  which twisted the head or limbs over time.
+
 ## [0.4.0] – 2026-10-27
 
 A rounder, more detailed Kaia, completely new walking and sprinting, a glider with a real flight model, and a
@@ -143,6 +188,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.5.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.4.0
 [0.3.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.2.0
