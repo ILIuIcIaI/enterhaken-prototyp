@@ -3,6 +3,17 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.5.2] – 2026-10-28
+
+Patch: cars and buses are solid too.
+
+### Added
+- **Collision with cars and buses:** Kaia can land on their roofs and ride along through the streets, jump off with
+  their speed, and she can no longer walk or swing through them.
+
+### Fixed
+- Cars no longer brake for Kaia while she is riding on top of a vehicle.
+
 ## [0.5.1] – 2026-10-28
 
 Patch: the train and the airplanes are now solid, and the elevated railway runs much higher.
@@ -201,6 +212,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.5.2]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.2
 [0.5.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.0
 [0.4.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.4.0

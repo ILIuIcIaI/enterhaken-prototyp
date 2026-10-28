@@ -52,7 +52,7 @@ class Game {
     this.charEvents = [];
 
     this.player = new Player(this.city);
-    this.player.movers = this.transit.movers;
+    this.player.movers = [...this.transit.movers, ...this.traffic.movers];
     this.hooks = [new Hook(-1, this.scene), new Hook(1, this.scene)];
     this.character = new Character();
     this.scene.add(this.character.root, this.character.wings);
@@ -105,7 +105,7 @@ class Game {
     this.world.rebuild();
     this.traffic.build(this.city, 150);
     this.transit.build(this.city);
-    this.player.movers = this.transit.movers;
+    this.player.movers = [...this.transit.movers, ...this.traffic.movers];
     this.spawn();
   }
 
@@ -302,7 +302,8 @@ class Game {
     this.aimMarker.update(this.aim, this.camera, this.time);
     this.world.update(this.renderPos, this.camera, this.time);
     this.city.updateDecor(this.time);
-    this.traffic.update(this.paused ? 0 : dt, this.player.state === 'ground' ? this.renderPos : null);
+    // Autos bremsen für Kaia auf der Fahrbahn – nicht, wenn sie auf einem Fahrzeug mitfährt
+    this.traffic.update(this.paused ? 0 : dt, this.player.state === 'ground' && !this.player.platform ? this.renderPos : null);
     this.transit.render(this.simTime);
     this.hud.update(this);
     this.updateSpeedLines(dt);

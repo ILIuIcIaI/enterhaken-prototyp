@@ -193,7 +193,15 @@ export class Traffic {
       const M = this.meshes[car.kind];
       car.slot = M.n++;
       M.paint.setColorAt(car.slot, car.color);
+      // Kollisionskörper wie bei Zug und Flugzeug: Kaia kann aufs Dach springen und mitfahren
+      const m = models[car.kind], h = car.kind === 'bus' ? 3.05 : car.kind === 'van' ? 2.0 : 1.62;
+      car.mover = {
+        kind: car.kind === 'bus' ? 'bus' : 'car', pos: new THREE.Vector3(), quat: new THREE.Quaternion(), vel: new THREE.Vector3(),
+        boxes: [{ min: new THREE.Vector3(-m.W / 2, 0.15, -m.L / 2), max: new THREE.Vector3(m.W / 2, h, m.L / 2) }],
+        worldPoint(local, out) { return out.copy(local).applyQuaternion(this.quat).add(this.pos); },
+      };
     }
+    this.movers = this.cars.map((c) => c.mover);
     for (const M of Object.values(this.meshes)) {
       M.paint.count = M.dark.count = M.lights.count = M.n;
       if (M.paint.instanceColor) M.paint.instanceColor.needsUpdate = true;
@@ -364,6 +372,9 @@ export class Traffic {
       p.set(at.x, 0, at.z);
       q.setFromAxisAngle(UP, Math.atan2(-at.tx, -at.tz));
       m.compose(p, q, s);
+      car.mover.pos.copy(p);
+      car.mover.quat.copy(q);
+      car.mover.vel.set(at.tx * car.v, 0, at.tz * car.v);
       const M = this.meshes[car.kind];
       M.paint.setMatrixAt(car.slot, m);
       M.dark.setMatrixAt(car.slot, m);
