@@ -5,6 +5,7 @@ import { createWorld } from './world.js';
 import { Player } from './player.js';
 import { Hook } from './hooks.js';
 import { Character } from './character.js';
+import { ROSTER } from './designs/index.js';
 import { CameraRig } from './camera.js';
 import { Input } from './input.js';
 import { HUD } from './hud.js';
@@ -14,6 +15,7 @@ import { createTuning } from './tuning.js';
 import { Post } from './post.js';
 import { Traffic } from './traffic.js';
 import { Transit } from './transit.js';
+import { createCharacterShadow, useCharacterLayer } from './charshadow.js';
 
 const UP = new THREE.Vector3(0, 1, 0);
 const _v = new THREE.Vector3();
@@ -22,6 +24,17 @@ const _u = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _hip = new THREE.Vector3();
 const _proj = new THREE.Vector3();
+
+// zuletzt gewählte Figur merken (nur in diesem Browser)
+function loadChoice() {
+  try { return localStorage.getItem('enterhaken.character') || 'belle'; } catch { return 'belle'; }
+}
+function saveChoice(id) {
+  try { localStorage.setItem('enterhaken.character', id); } catch { /* privates Fenster o. Ä. */ }
+}
+function disposeTree(obj) {
+  obj.traverse((o) => { if (o.geometry) o.geometry.dispose(); });
+}
 
 class Game {
   constructor() {
@@ -44,6 +57,7 @@ class Game {
     this.city = new City(CONFIG.world.seed);
     this.scene.add(this.city.mesh, this.city.decor);
     this.world = createWorld(renderer, this.scene, this.city);
+    this.charShadow = createCharacterShadow(this.scene, this.camera);
     this.traffic = new Traffic(this.scene, this.city, 150);
     this.transit = new Transit(this.scene, this.city);
     this.simTime = 0;
@@ -54,8 +68,9 @@ class Game {
     this.player = new Player(this.city);
     this.player.movers = [...this.transit.movers, ...this.traffic.movers];
     this.hooks = [new Hook(-1, this.scene), new Hook(1, this.scene)];
-    this.character = new Character();
-    this.scene.add(this.character.root, this.character.wings);
+    this.character = null;
+    this.charCache = new Map(); // zuletzt gespielte Figuren bleiben gebaut – Zurückwechseln geht sofort
+    this.setCharacter(loadChoice());
     this.rig = new CameraRig(this.camera, this.city);
     this.input = new Input(renderer.domElement);
     this.hud = new HUD();
@@ -87,6 +102,31 @@ class Game {
     renderer.setAnimationLoop((t) => this.frame(t));
   }
 
+  // Figur wechseln (Auswahlraster): altes Modell entfernen, neues bauen
+  setCharacter(id) {
+    if (this.character && this.character.design.id === id) return;
+    let next = this.charCache.get(id);
+    if (next) this.charCache.delete(id);
+    else {
+      next = new Character(id);
+      useCharacterLayer(next.root, next.world);
+    }
+    for (const c of next.cloths) c.sim.ready = false; // Stoff neu an die aktuelle Pose anlegen
+    if (this.character) {
+      this.scene.remove(this.character.root, this.character.world);
+      this.charCache.set(this.character.design.id, this.character);
+      while (this.charCache.size > 3) {
+        const [oldId, old] = this.charCache.entries().next().value;
+        this.charCache.delete(oldId);
+        disposeTree(old.root);
+        disposeTree(old.world);
+      }
+    }
+    this.character = next;
+    this.scene.add(next.root, next.world);
+    saveChoice(next.design.id);
+  }
+
   spawn() {
     const roof = this.city.findSpawn();
     this.spawnPoint = roof.clone();
@@ -115,9 +155,52 @@ class Game {
     const help = document.getElementById('help');
     this.overlay = overlay;
     this.helpPanel = help;
-    overlay.addEventListener('click', () => {
+    // Seite 1: Steuerung · Seite 2: Figurenauswahl (auch im Pausenmenü)
+    const page = (name) => overlay.classList.toggle('select-page', name === 'select');
+    const roster = document.getElementById('roster'), play = document.getElementById('play'), pick = document.getElementById('pick');
+    const cards = new Map();
+    const mark = () => {
+      const d = this.character.design;
+      for (const [id, el] of cards) el.classList.toggle('selected', id === d.id);
+      pick.innerHTML = `<b>${d.name}</b> <span>${d.franchise}</span>`;
+    };
+    for (const d of ROSTER) {
+      const el = document.createElement('button');
+      el.className = 'card';
+      el.type = 'button';
+      el.innerHTML = `<span class="thumb"><img src="assets/characters/${d.id}.png" alt="" draggable="false"><i class="spin"></i></span><span class="name">${d.name}</span><span class="fr">${d.franchise}</span>`;
+      el.querySelector('img').addEventListener('error', () => el.classList.add('noimg'));
+      el.addEventListener('click', () => {
+        if (overlay.classList.contains('busy') || d.id === this.character.design.id) return;
+        overlay.classList.add('busy');
+        el.classList.add('loading');
+        play.disabled = true;
+        // erst den Ladezustand zeichnen lassen, dann bauen (blockiert kurz)
+        requestAnimationFrame(() => setTimeout(() => {
+          try { this.setCharacter(d.id); } finally {
+            overlay.classList.remove('busy');
+            el.classList.remove('loading');
+            play.disabled = false;
+            mark();
+          }
+        }, 30));
+      });
+      cards.set(d.id, el);
+      roster.appendChild(el);
+    }
+    mark();
+    document.getElementById('toSelect').addEventListener('click', () => page('select'));
+    document.getElementById('toControls').addEventListener('click', () => page('controls'));
+    const start = () => {
+      if (play.disabled) return;
       this.audio.init();
       this.input.requestLock();
+    };
+    play.addEventListener('click', start);
+    window.addEventListener('keydown', (e) => {
+      if (e.code !== 'Enter' || overlay.classList.contains('hidden')) return;
+      if (overlay.classList.contains('select-page')) start();
+      else page('select');
     });
     document.addEventListener('pointerlockchange', () => {
       if (this.debug) return;
@@ -125,6 +208,7 @@ class Game {
       this.paused = !locked;
       overlay.classList.toggle('hidden', locked);
       overlay.classList.add('started');
+      if (!locked) page('select');
     });
     if (this.debug) {
       this.input.freeLook = true;
@@ -301,8 +385,9 @@ class Game {
     this.embers.update(this.time, this.camera, pxScale);
     this.aimMarker.update(this.aim, this.camera, this.time);
     this.world.update(this.renderPos, this.camera, this.time);
+    this.charShadow.update(this.renderPos);
     this.city.updateDecor(this.time);
-    // Autos bremsen für Kaia auf der Fahrbahn – nicht, wenn sie auf einem Fahrzeug mitfährt
+    // Autos bremsen für die Figur auf der Fahrbahn – nicht, wenn sie auf einem Fahrzeug mitfährt
     this.traffic.update(this.paused ? 0 : dt, this.player.state === 'ground' && !this.player.platform ? this.renderPos : null);
     this.transit.render(this.simTime);
     this.hud.update(this);
@@ -422,7 +507,7 @@ class Game {
   updateCharacter(dt) {
     const p = this.player, c = this.character;
     c.root.position.copy(this.renderPos);
-    c.root.visible = this.rig.dist > 0.9;
+    c.root.visible = c.world.visible = this.rig.dist > 0.9;
 
     let rate = 10;
     const v = p.vel;
@@ -596,3 +681,4 @@ class Game {
 }
 
 window.game = new Game();
+if (window.game.debug) import('./debugtools.js').then((m) => m.installDebugTools(window.game));

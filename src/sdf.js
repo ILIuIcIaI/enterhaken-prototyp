@@ -16,17 +16,19 @@ export function smax(a, b, k) {
 }
 
 export function sdSphere(px, py, pz, cx, cy, cz, r) {
-  return Math.hypot(px - cx, py - cy, pz - cz) - r;
+  const x = px - cx, y = py - cy, z = pz - cz;
+  return Math.sqrt(x * x + y * y + z * z) - r;
 }
 
 // Ellipsoid (Näherung nach Inigo Quilez)
 export function sdEllipsoid(px, py, pz, cx, cy, cz, rx, ry, rz) {
   const x = px - cx, y = py - cy, z = pz - cz;
-  const k0 = Math.hypot(x / rx, y / ry, z / rz);
-  const k1 = Math.hypot(x / (rx * rx), y / (ry * ry), z / (rz * rz));
+  const ax = x / rx, ay = y / ry, az = z / rz;
+  const k0 = Math.sqrt(ax * ax + ay * ay + az * az);
+  const bx = ax / rx, by = ay / ry, bz = az / rz;
+  const k1 = Math.sqrt(bx * bx + by * by + bz * bz);
   return k1 > 1e-9 ? (k0 * (k0 - 1)) / k1 : -Math.min(rx, ry, rz);
 }
-
 // Kegelstumpf mit runden Enden zwischen a (Radius r1) und b (Radius r2), nach Inigo Quilez
 export function sdRoundCone(px, py, pz, ax, ay, az, bx, by, bz, r1, r2) {
   const bax = bx - ax, bay = by - ay, baz = bz - az;
@@ -50,13 +52,15 @@ export function sdRoundCone(px, py, pz, ax, ay, az, bx, by, bz, r1, r2) {
 // abgerundeter Quader (Halbmaße hx,hy,hz, Kantenradius r)
 export function sdRoundBox(px, py, pz, cx, cy, cz, hx, hy, hz, r) {
   const qx = Math.abs(px - cx) - hx + r, qy = Math.abs(py - cy) - hy + r, qz = Math.abs(pz - cz) - hz + r;
-  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0), Math.max(qz, 0)) + Math.min(Math.max(qx, qy, qz), 0) - r;
+  const mx = qx > 0 ? qx : 0, my = qy > 0 ? qy : 0, mz = qz > 0 ? qz : 0;
+  return Math.sqrt(mx * mx + my * my + mz * mz) + Math.min(Math.max(qx, qy, qz), 0) - r;
 }
 
 // Torus in der XZ-Ebene um (cx,cy,cz)
 export function sdTorus(px, py, pz, cx, cy, cz, R, r) {
-  const q = Math.hypot(px - cx, pz - cz) - R;
-  return Math.hypot(q, py - cy) - r;
+  const dx = px - cx, dz = pz - cz, dy = py - cy;
+  const q = Math.sqrt(dx * dx + dz * dz) - R;
+  return Math.sqrt(q * q + dy * dy) - r;
 }
 
 // Menge von Kegelstümpfen mit grober Raster-Vorauswahl: bei vielen Teilen (z. B. Haarsträhnen)
@@ -118,13 +122,39 @@ export function polygonize(sdf, min, max, res, maxPoly = 250000) {
   const hx = (max.x - min.x) / 2, hy = (max.y - min.y) / 2, hz = (max.z - min.z) / 2;
   const cx = min.x + hx, cy = min.y + hy, cz = min.z + hz;
   const size = mc.size, size2 = size * size, half = mc.halfsize, field = mc.field;
-  for (let z = 0; z < size; z++) {
-    const wz = cz + ((z - half) / half) * hz;
-    for (let y = 0; y < size; y++) {
-      const wy = cy + ((y - half) / half) * hy;
-      const row = z * size2 + y * size;
-      for (let x = 0; x < size; x++) {
-        field[row + x] = -sdf(cx + ((x - half) / half) * hx, wy, wz);
+  const W = (i, c, h) => c + ((i - half) / half) * h;
+  // Zweistufig: grobes Gitter (Schritt S) und nur Zellen nahe der Oberfläche fein auswerten;
+  // weit entfernte Zellen werden trilinear aus den groben Ecken gefüllt (Vorzeichen bleibt exakt).
+  const S = 4, nc = Math.ceil((size - 1) / S) + 1;
+  const ci = (k) => Math.min(size - 1, k * S);
+  const coarse = new Float32Array(nc * nc * nc);
+  for (let k = 0; k < nc; k++) for (let j = 0; j < nc; j++) for (let i = 0; i < nc; i++) {
+    coarse[(k * nc + j) * nc + i] = sdf(W(ci(i), cx, hx), W(ci(j), cy, hy), W(ci(k), cz, hz));
+  }
+  const cell = [hx / half, hy / half, hz / half];
+  // Ein Block kann die Fläche nur enthalten, wenn eine Ecke näher als die halbe Diagonale liegt (Abstandsfeld);
+  // Faktor 0.9 statt 0.5 als Reserve für die angenäherten Felder (glatte Vereinigung, Ellipsoide)
+  const margin = 0.9 * Math.hypot(cell[0] * S, cell[1] * S, cell[2] * S);
+  const C = (i, j, k) => coarse[(k * nc + j) * nc + i];
+  for (let k = 0; k + 1 < nc; k++) for (let j = 0; j + 1 < nc; j++) for (let i = 0; i + 1 < nc; i++) {
+    const c = [C(i, j, k), C(i + 1, j, k), C(i, j + 1, k), C(i + 1, j + 1, k), C(i, j, k + 1), C(i + 1, j, k + 1), C(i, j + 1, k + 1), C(i + 1, j + 1, k + 1)];
+    let mn = Infinity, pos = 0;
+    for (const v of c) { mn = Math.min(mn, Math.abs(v)); if (v > 0) pos++; }
+    const far = mn > margin && (pos === 0 || pos === 8);
+    const x0 = ci(i), x1 = ci(i + 1), y0 = ci(j), y1 = ci(j + 1), z0 = ci(k), z1 = ci(k + 1);
+    for (let z = z0; z <= z1; z++) {
+      const tz = z1 > z0 ? (z - z0) / (z1 - z0) : 0, wz = W(z, cz, hz);
+      for (let y = y0; y <= y1; y++) {
+        const ty = y1 > y0 ? (y - y0) / (y1 - y0) : 0, wy = W(y, cy, hy);
+        const row = z * size2 + y * size;
+        for (let x = x0; x <= x1; x++) {
+          if (far) {
+            const tx = x1 > x0 ? (x - x0) / (x1 - x0) : 0;
+            const a = c[0] + (c[1] - c[0]) * tx, b = c[2] + (c[3] - c[2]) * tx, e = c[4] + (c[5] - c[4]) * tx, f = c[6] + (c[7] - c[6]) * tx;
+            const u = a + (b - a) * ty, w = e + (f - e) * ty;
+            field[row + x] = -(u + (w - u) * tz);
+          } else field[row + x] = -sdf(W(x, cx, hx), wy, wz);
+        }
       }
     }
   }

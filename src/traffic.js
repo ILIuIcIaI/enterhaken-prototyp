@@ -193,7 +193,7 @@ export class Traffic {
       const M = this.meshes[car.kind];
       car.slot = M.n++;
       M.paint.setColorAt(car.slot, car.color);
-      // Kollisionskörper wie bei Zug und Flugzeug: Kaia kann aufs Dach springen und mitfahren
+      // Kollisionskörper wie bei Zug und Flugzeug: die Figur kann aufs Dach springen und mitfahren
       const m = models[car.kind], h = car.kind === 'bus' ? 3.05 : car.kind === 'van' ? 2.0 : 1.62;
       car.mover = {
         kind: car.kind === 'bus' ? 'bus' : 'car', pos: new THREE.Vector3(), quat: new THREE.Quaternion(), vel: new THREE.Vector3(),

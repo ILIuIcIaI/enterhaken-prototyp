@@ -61,23 +61,36 @@
     <div class="panel">
       <h1>ENTERHAKEN</h1>
       <p class="sub">Gameplay-Prototyp · Schwingen &amp; Wallrun</p>
-      <div class="cols">
-        <dl>
-          <dt>Maus</dt><dd>Zielen – das Fadenkreuz muss ein Gebäude treffen</dd>
-          <dt>Linke / rechte Maustaste</dt><dd>Haken abschießen, halten = eingehakt bleiben</dd>
-          <dt>Leertaste halten</dt><dd>Am Seil: Winde zieht dich zum Anker</dd>
-          <dt>Shift</dt><dd>Am Boden sprinten · in der Luft antippen = Dash, halten = Gas-Schub</dd>
-          <dt>Strg antippen</dt><dd>Gleiter in der Luft an/aus – Blick lenkt, W Sturzflug, S abfangen</dd>
-        </dl>
-        <dl>
-          <dt>W A S D</dt><dd>Gehen / Schwung pumpen</dd>
-          <dt>Gegen eine Wand prallen</dt><dd>Automatischer Wallrun – W + Blick lenkt, hoch schauen = hochlaufen</dd>
-          <dt>Leertaste im Wallrun</dt><dd>Wandsprung</dd>
-          <dt>R · T · C · G · H · P</dt><dd>Reset · Zeitlupe · Schulter · Tuning · Hilfe · Screenshot</dd>
-        </dl>
-      </div>
-      <p class="start">Klicken zum Starten</p>
-      <p class="resume">Pausiert – klicken zum Fortsetzen</p>
+      <section class="page page-controls">
+        <div class="cols">
+          <dl>
+            <dt>Maus</dt><dd>Zielen – das Fadenkreuz muss ein Gebäude treffen</dd>
+            <dt>Linke / rechte Maustaste</dt><dd>Haken abschießen, halten = eingehakt bleiben</dd>
+            <dt>Leertaste halten</dt><dd>Am Seil: Winde zieht dich zum Anker</dd>
+            <dt>Shift</dt><dd>Am Boden sprinten · in der Luft antippen = Dash, halten = Gas-Schub</dd>
+            <dt>Strg antippen</dt><dd>Gleiter in der Luft an/aus – Blick lenkt, W Sturzflug, S abfangen</dd>
+          </dl>
+          <dl>
+            <dt>W A S D</dt><dd>Gehen / Schwung pumpen</dd>
+            <dt>Gegen eine Wand prallen</dt><dd>Automatischer Wallrun – W + Blick lenkt, hoch schauen = hochlaufen</dd>
+            <dt>Leertaste im Wallrun</dt><dd>Wandsprung</dd>
+            <dt>R · T · C · G · H · P</dt><dd>Reset · Zeitlupe · Schulter · Tuning · Hilfe · Screenshot</dd>
+          </dl>
+        </div>
+        <div class="actions">
+          <span class="resume">Pausiert</span>
+          <button type="button" id="toSelect" class="btn primary">Weiter: Figur wählen ›</button>
+        </div>
+      </section>
+      <section class="page page-select">
+        <h2>Figur wählen <span class="resume">· Pausiert</span></h2>
+        <div id="roster" class="roster"></div>
+        <div class="actions">
+          <button type="button" id="toControls" class="btn">‹ Steuerung</button>
+          <span id="pick" class="pick"></span>
+          <button type="button" id="play" class="btn primary"><span class="start">Los!</span><span class="resume">Weiter spielen</span></button>
+        </div>
+      </section>
     </div>
   </div>
 

@@ -3,6 +3,50 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.6.0] – 2026-10-28
+
+Ten playable characters with a character select screen, cloth physics for coats, capes, skirts, ties and braids,
+real character shadows and a gentle breeze. All characters are purely cosmetic – they play exactly the same.
+
+### Added Characters
+- Belle $\color{gray}{\text{(Zenless Zone Zero)}}$
+- Rei Ayanami $\color{gray}{\text{(Neon Genesis Evangelion)}}$
+- Makima $\color{gray}{\text{(Chainsaw Man)}}$
+- Zero $\color{gray}{\text{(Drakengard 3)}}$
+- 2B $\color{gray}{\text{(NieR:Automata)}}$
+- Joker $\color{gray}{\text{(Persona 5)}}$
+- Makoto Yuki $\color{gray}{\text{(Persona 3)}}$
+- Steve $\color{gray}{\text{(Minecraft)}}$
+- Scientist $\color{gray}{\text{(Half-Life)}}$
+- Jonesy $\color{gray}{\text{(Fortnite)}}$
+
+### Added
+- **Character select:** the start screen now has a second page after the controls with a grid of all characters
+  (portrait, name, series). Pick one and press **Los!** – it can also be changed from the pause menu (Esc). The
+  choice is remembered; the last three characters stay loaded, so switching back is instant.
+- **Cloth physics** (`src/cloth.js`, Verlet at 120 Hz): coat tails, lab coat and blazer hems, skirts, capes,
+  embroidered dress panels, ties, bandana ends, long hair and braids swing with every movement. Capsules around
+  legs, hips and torso keep the fabric outside the body – legs never pass through a skirt or coat. A soft pull
+  toward the rest shape and a maximum deflection keep it natural instead of exaggerated.
+- **Character shadows:** every character casts a detailed shadow with a recognizable silhouette – including
+  capes, coat tails and skirts – instead of a thin line. It falls a little steeper than the low evening sun, so it
+  stays short and readable and lands near the feet.
+- **Gentle wind:** a light, steady breeze from one direction makes capes, hems, hair strands and braids sway
+  slightly, even when standing still; solid hairstyles move a tiny bit along with it.
+- **Character toolkit** (`src/charkit.js`) and one file per character in `src/designs/`: one-piece rounded bodies
+  from distance fields (male and female builds, own proportions per character), garments fitted to the body,
+  trousers, shoes and boots, hair from merged strands, painted faces.
+
+### Changed
+- **Kaia is now Belle** from Zenless Zone Zero.
+- Dark clothing gets a subtle rim light and slightly lighter blacks, so black coats and uniforms stay readable at
+  dusk.
+- Mirrored parts (such as the left ear) are drawn correctly – no more black discs beside the head.
+
+### Notes
+- The characters come without their weapons and items (no swords, guns, knives or Evoker).
+- Building a character takes a few seconds the first time (a spinner shows on its card).
+
 ## [0.5.2] – 2026-10-28
 
 Patch: cars and buses are solid too.
@@ -212,6 +256,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.6.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.6.0
 [0.5.2]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.2
 [0.5.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.1
 [0.5.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.0

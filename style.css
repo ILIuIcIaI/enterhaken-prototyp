@@ -199,7 +199,6 @@ html, body {
   background:
     repeating-linear-gradient(-45deg, rgba(255, 212, 0, 0.05) 0 14px, transparent 14px 28px),
     radial-gradient(ellipse at center, rgba(30, 10, 40, 0.55), rgba(10, 4, 16, 0.9));
-  cursor: pointer;
 }
 #overlay .panel {
   width: min(880px, calc(100vw - 32px));
@@ -225,18 +224,93 @@ html, body {
 #overlay dl { margin: 0; }
 #overlay dt { font-weight: 800; margin-top: 10px; font-size: 14px; color: var(--accent); }
 #overlay dd { margin: 2px 0 0; opacity: 0.8; font-size: 14px; }
-#overlay .start, #overlay .resume {
-  margin: 30px 0 0;
-  font-size: 19px;
-  font-weight: 900;
-  font-style: italic;
-  letter-spacing: 0.08em;
-  color: var(--ok);
-  animation: pulse 1.6s ease-in-out infinite;
-}
+/* zwei Seiten: Steuerung → Figurenauswahl */
+#overlay { cursor: default; }
+#overlay .page-select { display: none; }
+#overlay.select-page .page-controls { display: none; }
+#overlay.select-page .page-select { display: block; }
 #overlay .resume { display: none; }
 #overlay.started .start { display: none; }
-#overlay.started .resume { display: block; }
+#overlay.started .resume { display: inline; }
+#overlay h2 {
+  margin: 0 0 14px;
+  font-size: 15px;
+  font-style: italic;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+#overlay h2 .resume { color: var(--text); opacity: 0.6; letter-spacing: 0.06em; }
+#overlay .actions { display: flex; align-items: center; gap: 16px; margin-top: 22px; }
+#overlay .actions .resume { font-style: italic; opacity: 0.7; margin-right: auto; }
+#overlay .page-controls .actions { justify-content: flex-end; }
+#overlay .pick { flex: 1; text-align: center; font-size: 15px; }
+#overlay .pick span { opacity: 0.5; margin-left: 4px; }
+.btn {
+  padding: 10px 20px;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-weight: 800;
+  font-style: italic;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transform: skewX(-10deg);
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--ink); font-size: 17px; padding: 10px 28px; }
+.btn.primary:hover { background: #ffe14d; }
+.btn:disabled { opacity: 0.45; cursor: wait; }
+
+/* Auswahlraster */
+.roster { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 0 0 8px;
+  border: 2px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+.card:hover { border-color: rgba(255, 212, 0, 0.6); transform: translateY(-2px); }
+.card.selected { border-color: var(--accent); background: rgba(255, 212, 0, 0.1); box-shadow: 0 0 0 2px rgba(255, 212, 0, 0.25); }
+.card .thumb {
+  position: relative;
+  display: block;
+  aspect-ratio: 2 / 3;
+  max-height: 23vh;
+  overflow: hidden;
+  background: radial-gradient(ellipse at 50% 35%, rgba(150, 110, 210, 0.35), rgba(20, 10, 30, 0.2) 70%);
+}
+.card img { width: 100%; height: 100%; object-fit: cover; object-position: 50% 30%; display: block; }
+.card.noimg .thumb::after { content: '?'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 34px; opacity: 0.3; }
+.card .name { margin-top: 6px; font-size: 13px; font-weight: 800; line-height: 1.2; padding: 0 4px; }
+.card .fr { font-size: 11px; opacity: 0.5; line-height: 1.25; padding: 1px 4px 0; }
+.card .spin {
+  display: none;
+  position: absolute;
+  left: 50%;
+  top: 45%;
+  width: 34px;
+  height: 34px;
+  margin: -17px 0 0 -17px;
+  border: 4px solid rgba(255, 212, 0, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+.card.loading .spin { display: block; }
+.card.loading img { opacity: 0.4; }
+#overlay.busy .card { cursor: wait; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
 @keyframes pulse { 50% { opacity: 0.45; } }
 
@@ -245,4 +319,6 @@ html, body {
 @media (max-width: 700px) {
   #overlay .cols { grid-template-columns: 1fr; }
   #overlay h1 { font-size: 32px; }
+  .roster { grid-template-columns: repeat(3, 1fr); }
+  #overlay .panel { max-height: calc(100vh - 24px); overflow-y: auto; }
 }

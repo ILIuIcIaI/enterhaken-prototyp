@@ -28,7 +28,7 @@ export function toonMaterial(color, { rim = 0.35, rimColor = '#ffb37a', levels =
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
 {
   float rimF = 1.0 - max(dot(normal, normalize(vViewPosition)), 0.0);
-  totalEmissiveRadiance += uRim * smoothstep(0.55, 0.85, rimF) * diffuseColor.rgb;
+  totalEmissiveRadiance += uRim * smoothstep(0.55, 0.85, rimF) * max(diffuseColor.rgb, vec3(0.16)); // auch dunkler Stoff bekommt eine Kante
 }`);
     };
     mat.customProgramCacheKey = () => 'toon-rim';
