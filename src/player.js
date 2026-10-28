@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { STUMBLE, curveAt } from './animations.js';
 import { CONFIG } from './config.js';
 
 // Spielerphysik als Punktmasse mit AABB-Körper, integriert per Position-Based-Dynamics:
@@ -91,6 +92,9 @@ export class Player {
     this.movers = [];
     this.platform = null;
     this.platLocal = new THREE.Vector3();
+    // Bewegung nach schnellem Aufkommen: { type: 'roll' | 'slide' | 'rise' | 'stumble', t, rope, auto }
+    this.landMove = null;
+    this.attachedCount = 0;
   }
 
   reset(p, yaw = 0) {
@@ -107,6 +111,7 @@ export class Player {
     this.gliding = false;
     this.dashTimer = 0;
     this.platform = null;
+    this.landMove = null;
   }
 
   get feetY() {
@@ -138,6 +143,7 @@ export class Player {
 
     let attached = 0;
     for (const h of hooks) if (h.state === 'attached') attached++;
+    this.attachedCount = attached;
     const hasGas = G.infinite || this.gas > 0.5;
     this.reeling = ctl.reel && attached > 0 && hasGas;
     // Gas-Schub: Shift in der Luft gedrückt halten (kurzes Antippen = Dash)
@@ -271,9 +277,19 @@ export class Player {
     this.groundSpeed = Math.min(this.groundSpeed, hs + 0.5); // Wand blockiert → Tempo fällt mit ab
     this.sprinting = false;
 
-    if (this.jumpBuffer > 0) {
+    if (this.jumpBuffer > 0 && this.canJumpNow()) {
       this.jumpBuffer = 0;
       this.jump();
+      return;
+    }
+
+    // schneller unterwegs als man laufen kann (z. B. vom Seil über den Boden gezogen): rutschen statt schlittern
+    if (!this.landMove && hs > L.sprintSpeed + 1.5) this.startLandMove('slide', { rope: this.attachedCount > 0, auto: this.attachedCount === 0 });
+    if (this.landMove) {
+      this.landMoveStep(dt, ctl, wish, input, hs);
+      this.turnRate = wrapAngle(this.facingYaw - prevFacing) / dt;
+      v.x = -Math.sin(this.moveYaw) * this.groundSpeed;
+      v.z = -Math.cos(this.moveYaw) * this.groundSpeed;
       return;
     }
 
@@ -288,10 +304,6 @@ export class Player {
       }
       this.facingYaw = wrapAngle(pv.from + wrapAngle(pv.to - pv.from) * smooth(0.15, 0.75, u));
       if (u >= 1) this.pivot = null;
-    } else if (hs > L.sprintSpeed + 1.5) {
-      // schneller gelandet als man laufen kann: rutschen und abbremsen
-      this.groundSpeed = Math.max(0, hs - P.slideDecel * dt);
-      this.moveYaw = Math.atan2(-v.x, -v.z);
     } else if (input > 0.1) {
       this.stopArmed = true;
       this.sprinting = !!ctl.sprint;
@@ -325,7 +337,80 @@ export class Player {
     v.z = -Math.cos(this.moveYaw) * this.groundSpeed;
   }
 
+  // ------------------------------------------------------------------ Rolle, Slide, Stolpern
+  startLandMove(type, o = {}) {
+    const prev = this.landMove;
+    this.landMove = { type, t: 0, rope: o.rope ?? prev?.rope ?? false, auto: o.auto ?? false };
+    // Abrollen mit dem Schwung (begrenzt); je schneller, desto kürzer die Rolle, damit sie nicht ewig weit trägt
+    if (type === 'roll') {
+      const LD = CONFIG.landing;
+      this.groundSpeed = Math.min(this.groundSpeed, LD.rollMax);
+      this.landMove.dur = clamp(LD.rollDist / Math.max(1, this.groundSpeed), LD.rollTimeMin, LD.rollTime);
+    }
+    // Stolpern fährt einen festen Tempoverlauf (passend zu den Fangschritten), skaliert aufs Tempo beim Start
+    if (type === 'stumble') this.landMove.k = Math.min(1, Math.max(0.3, this.groundSpeed / STUMBLE.speed[0][1]));
+    this.pivot = null;
+    this.events.push({ type: 'move', move: type, speed: this.groundSpeed });
+  }
+
+  canJumpNow() {
+    const M = this.landMove;
+    if (!M) return true;
+    if (M.type === 'roll') return M.t > M.dur * 0.6;
+    if (M.type === 'stumble') return M.t > CONFIG.landing.stumbleTime * 0.6;
+    return true;
+  }
+
+  // Rolle: Tempo bleibt mit Richtungstaste fast ganz erhalten (→ Slide), ohne Taste bremst sie stark (→ Stolpern).
+  // Slide: geringe Reibung, leicht lenkbar; endet, wenn die Taste losgelassen wird (am Seil: wenn man abhebt
+  // oder das Tempo aufgebraucht ist) – dann Aufstehen in den Lauf bzw. in den Stand.
+  landMoveStep(dt, ctl, wish, input, hs) {
+    const M = this.landMove, LD = CONFIG.landing, L = CONFIG.locomotion, v = this.vel;
+    M.t += dt;
+    const held = input > 0.1;
+    if (M.rope || M.auto) {
+      // Seil (oder Fahrzeug) darf weiter ziehen: Tempo und Richtung kommen aus der tatsächlichen Bewegung
+      this.groundSpeed = hs;
+      if (hs > 0.5) this.moveYaw = Math.atan2(-v.x, -v.z);
+    }
+    let s = this.groundSpeed;
+    if (M.type === 'roll') {
+      M.held = held ? 1 : 0;
+      if (held) s = Math.max(0, s - LD.rollKeep * dt);
+      else {
+        // ohne Taste genau auf das Anfangstempo des Stolperns herunter (kein Sprung im Tempo beim Übergang)
+        const target = STUMBLE.speed[0][1], left = Math.max(dt, M.dur - M.t);
+        s = s > target ? Math.max(target, s - Math.max(LD.rollBrake, (s - target) / left) * dt) : Math.max(0, s - LD.rollBrake * 0.3 * dt);
+      }
+      this.groundSpeed = s;
+      if (M.t >= M.dur) this.startLandMove(held ? (s > LD.slideExit ? 'slide' : 'rise') : 'stumble');
+    } else if (M.type === 'slide') {
+      const fr = M.rope || M.auto ? LD.ropeFriction + LD.ropeDrag * s : LD.slideFriction + LD.slideDrag * s;
+      s = Math.max(0, s - fr * dt);
+      if (held) {
+        const desired = Math.atan2(-wish.x, -wish.z), diff = wrapAngle(desired - this.moveYaw);
+        // nur nach vorne/seitlich lenken; Taste nach hinten hält den Slide, ohne ihn umzudrehen
+        if (Math.abs(diff) < 2) this.moveYaw = wrapAngle(this.moveYaw + clamp(diff, -LD.slideSteer * dt, LD.slideSteer * dt) * input);
+      }
+      this.groundSpeed = s;
+      const keep = M.rope ? this.attachedCount > 0 || held : M.auto ? true : held;
+      if (!keep || s < LD.slideExit) this.startLandMove('rise');
+    } else if (M.type === 'rise') {
+      const target = held ? Math.min(Math.max(s, L.walkSpeed * 2.2), ctl.sprint ? L.sprintSpeed : L.sprintSpeed * 0.8) : 0;
+      s = approach(s, target, (held ? 9 : L.runStopDecel) * dt);
+      this.groundSpeed = s;
+      if (M.t >= LD.riseTime) { this.landMove = null; this.stopArmed = held; }
+    } else if (M.type === 'stumble') {
+      s = M.k * curveAt(STUMBLE.speed, M.t);
+      this.groundSpeed = s;
+      if (M.t >= LD.stumbleTime) this.landMove = null;
+    }
+    // Körper zeigt in Fahrtrichtung (Slide: Füße voraus)
+    this.facingYaw = wrapAngle(this.facingYaw + wrapAngle(this.moveYaw - this.facingYaw) * (1 - Math.exp(-12 * dt)));
+  }
+
   jump() {
+    this.landMove = null;
     this.vel.y = Math.max(this.vel.y, CONFIG.player.jumpSpeed);
     this.state = 'air';
     this.jumpBuffer = 0;
@@ -560,11 +645,18 @@ export class Player {
         // Tempo und Richtung aus der Luft übernehmen
         this.groundSpeed = Math.hypot(this.vel.x, this.vel.z);
         if (this.groundSpeed > 1) this.moveYaw = this.facingYaw = Math.atan2(-this.vel.x, -this.vel.z);
+        this.landMove = null;
+        if (this.attachedCount > 0) {
+          if (this.groundSpeed > CONFIG.locomotion.sprintSpeed + 1.5) this.startLandMove('slide', { rope: true });
+        } else if (this.groundSpeed > CONFIG.landing.rollSpeed) this.startLandMove('roll');
       }
       this.state = 'ground';
       this.groundTimer = 0.12;
     } else {
-      if (this.state === 'ground') this.state = 'air';
+      if (this.state === 'ground') {
+        this.state = 'air';
+        this.landMove = null; // abgehoben (Seil zieht hoch, über eine Kante gerutscht)
+      }
       if (this.state === 'air') {
         const hs = Math.hypot(this.vel.x, this.vel.z);
         if (hs > 1) this.facingYaw = this.moveYaw = Math.atan2(-this.vel.x, -this.vel.z);

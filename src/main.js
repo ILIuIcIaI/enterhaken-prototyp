@@ -82,6 +82,8 @@ class Game {
 
     this.aim = { hit: false, inRange: false, point: new THREE.Vector3(), normal: new THREE.Vector3(), distPlayer: 0, mover: null, local: new THREE.Vector3() };
     this.renderPos = new THREE.Vector3();
+    this.wallOff = new THREE.Vector3(); // Figur beim Wallrun so weit von der Wand weg, dass die Füße aufsetzen
+    this.wallUp = 0;
     this.ctl = {
       move: { x: 0, z: 0 }, reel: false, sprint: false, jumpHeld: false,
       jumpPressed: false, dashPressed: false, glideToggle: false,
@@ -435,6 +437,10 @@ class Game {
         this.audio.glide(true);
       } else if (e.type === 'glideOff') {
         this.audio.glide(false);
+      } else if (e.type === 'move') {
+        // Abrollen: dumpfer Aufprall und Staub; Slide: Staubwolke beim Aufsetzen
+        if (e.move === 'roll') { this.audio.step(1.3); this.dustRing(p.pos, 10); }
+        else if (e.move === 'slide') this.dustRing(p.pos, 8);
       } else if (e.type === 'stop') {
         this.audio.step(0.8);
       } else if (e.type === 'snap') {
@@ -522,14 +528,19 @@ class Game {
       }
     }
 
+    let wallUp = 0;
     if (p.state === 'wallrun') {
+      // Laufrichtung auf der Wand bestimmt die Haltung: waagrecht an der Wand entlang leicht von ihr weggelehnt,
+      // gerade hinauf wie im Anime – die Wand wird zum Boden, der Körper steht quer ab, Füße auf der Wand,
+      // leicht in die Laufrichtung geneigt. Dazwischen stufenlos.
       const n = p.wall.n, t = p.wall.t;
-      _u.copy(n).multiplyScalar(0.8).add(UP).normalize();
-      const vt = v.dot(t);
-      _f.copy(t).multiplyScalar(Math.sign(vt) || 1);
-      if (Math.abs(vt) < 3 && v.y > 0) _f.set(0, 1, 0).addScaledVector(n, -1).normalize();
-      if (Math.abs(_f.dot(_u)) > 0.95) _f.copy(n).negate();
-      rate = 14;
+      _f.copy(v).addScaledVector(n, -v.dot(n));
+      if (_f.y < 0) _f.y = 0; // beim Abrutschen weiter in Laufrichtung schauen
+      if (_f.lengthSq() < 1) _f.copy(t).multiplyScalar(Math.sign(v.dot(t)) || 1);
+      else _f.normalize();
+      wallUp = Math.max(0, _f.y);
+      _u.copy(n).multiplyScalar(0.8 + 0.2 * wallUp).addScaledVector(UP, 1 - wallUp).addScaledVector(_f, 0.38 * wallUp).normalize();
+      rate = 14 - 4 * wallUp; // das große Umkippen beim Hochlaufen etwas weicher
     } else if (p.state !== 'ground' && taut > 0) {
       _u.copy(_w.divideScalar(taut)).sub(p.pos).normalize();
       _f.copy(v).addScaledVector(_u, -v.dot(_u));
@@ -560,6 +571,15 @@ class Game {
       _f.addScaledVector(_u, -_f.dot(_u)).normalize();
     }
     if (dt > 0) c.orient(_u, _f, dt, rate);
+    // Füße auf die Wandfläche: je weiter der Körper zur Wand kippt, desto weiter weg von ihr (weich ein- und ausgeblendet)
+    _v.set(0, 0, 0);
+    if (p.state === 'wallrun') {
+      _w.set(0, 1, 0).applyQuaternion(c.root.quaternion);
+      _v.copy(p.wall.n).multiplyScalar(Math.max(0, 0.8 * _w.dot(p.wall.n) - CONFIG.player.halfWidth + 0.02));
+    }
+    if (dt > 0) this.wallOff.lerp(_v, 1 - Math.exp(-14 * dt));
+    this.wallUp += (wallUp - this.wallUp) * (dt > 0 ? 1 - Math.exp(-10 * dt) : 0);
+    c.root.position.add(this.wallOff);
 
     // Position im Schwungbogen: hinter dem Anker (Abschwung) = 0, darunter = 0.5, davor (Aufschwung) = 1
     let swingPhase;
@@ -592,6 +612,8 @@ class Game {
       gliding: p.gliding,
       boosting: p.boosting && !p.gliding,
       turnRate: p.state === 'ground' ? p.turnRate : 0,
+      move: p.landMove,
+      wallUp: this.wallUp,
       events: this.charEvents,
       lookDir: this.rig.forward,
     });

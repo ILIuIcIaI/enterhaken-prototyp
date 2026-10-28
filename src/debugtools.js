@@ -293,6 +293,165 @@ export function installDebugTools(game) {
     res.twistAfterRest = Math.max(0, ...game.character.cloths.filter((c) => c.sim.rows > 3 && c.sim.cols > 8).map((c) => hemTwist(c.sim)));
     return res;
   };
-  window.dbg = { sim, sheet, thumb, look, post, pose, restore, closeup, motion, sunRoof, stress, soak };
+  // Einzelbilder eines Clips nebeneinander (Seitenansicht), ohne Überblendung und Nachschwingen – zum Prüfen der Posen
+  const clipStrip = async (name, clip, times, { ang = Math.PI / 2, dist = 3.2, h = 400 } = {}) => {
+    const P = game.player, V = P.pos.constructor, cv = game.renderer.domElement, c = game.character;
+    lit = true;
+    pose();
+    const out = document.createElement('canvas'); out.width = 260 * times.length; out.height = h;
+    const g = out.getContext('2d');
+    const base = c.basePose;
+    times.forEach((t, i) => {
+      for (let k = 0; k < base.nodes.length; k++) { base.nodes[k].quaternion.copy(base.q[k]); base.nodes[k].position.copy(base.p[k]); }
+      for (const [n, a] of Object.entries(c.actions)) a.setEffectiveWeight(n === clip ? 1 : 0);
+      c.actions[clip].time = t;
+      c.mixer.update(0);
+      c.root.updateMatrixWorld(true);
+      const a = P.facingYaw + ang, foot = P.pos.y - 0.82;
+      look(new V(P.pos.x - Math.sin(a) * dist, foot + 0.7, P.pos.z - Math.cos(a) * dist), new V(P.pos.x, foot + 0.55, P.pos.z), 30);
+      const sw = (cv.height * 260) / h;
+      g.drawImage(cv, (cv.width - sw) / 2, 0, sw, cv.height, i * 260, 0, 260, h);
+      g.fillStyle = 'rgba(13,8,18,0.7)'; g.fillRect(i * 260 + 6, 6, 70, 24);
+      g.fillStyle = '#ffd400'; g.font = '700 15px Segoe UI, sans-serif'; g.fillText(t.toFixed(2) + ' s', i * 260 + 12, 24);
+    });
+    restore();
+    pose();
+    return post(name + '.png', out);
+  };
+  // Landetest: auf einem langen Dach mit Tempo aufkommen (Richtungstaste bis Bild release gehalten oder nicht),
+  // Bilder von der Seite bei den angegebenen Bildnummern; gibt den Ablauf der Bewegungen zurück
+  const landTest = async (name, { speed = 18, held = true, release = 9999, shots = [0, 6, 12, 18, 24, 32, 44, 60, 80], vy = -7, ang = Math.PI / 2, hook = false } = {}) => {
+    const P = game.player, V = P.pos.constructor, cv = game.renderer.domElement, inp = game.input, city = game.city;
+    lit = true;
+    pose();
+    const out = [];
+    city.query(P.pos.x - 400, P.pos.z - 400, P.pos.x + 400, P.pos.z + 400, out);
+    // echte Dachfläche per Strahl von oben; 30 m Anlauf müssen eben und frei sein
+    const down = new V(0, -1, 0);
+    const top = (x, z) => { const h = city.raycast(new V(x, 600, z), down, 700); return h ? h.point.y : -1; };
+    let dir = null, start = null;
+    const roofs = out.filter((b) => !b.noRender && b.maxY > 10 && Math.max(b.maxX - b.minX, b.maxZ - b.minZ) > 30);
+    for (const b of roofs) {
+      for (const d of [new V(1, 0, 0), new V(0, 0, 1), new V(-1, 0, 0), new V(0, 0, -1)]) {
+        const along = d.x !== 0, len = along ? b.maxX - b.minX : b.maxZ - b.minZ;
+        if (len < 30) continue;
+        const cx = (b.minX + b.maxX) / 2, cz = (b.minZ + b.maxZ) / 2;
+        const s0 = new V(along ? cx - d.x * (len / 2 - 2) : cx, 0, along ? cz : cz - d.z * (len / 2 - 2));
+        const y0 = top(s0.x, s0.z);
+        let ok = y0 > 10;
+        for (let k = 4; ok && k <= 28; k += 4) ok = Math.abs(top(s0.x + d.x * k, s0.z + d.z * k) - y0) < 0.2;
+        if (ok && city.raycast(new V(s0.x, y0 + 1, s0.z), d, 28)) ok = false;
+        if (ok) { dir = d; start = s0.setY(y0 + 1.6); break; }
+      }
+      if (dir) break;
+    }
+    if (!dir) return ['kein geeignetes Dach'];
+    const yaw = Math.atan2(-dir.x, -dir.z);
+    P.reset(start, yaw);
+    P.vel.copy(dir).multiplyScalar(speed).setY(vy);
+    game.renderPos.copy(P.pos);
+    game.rig.yaw = yaw; game.rig.pitch = -0.1;
+    if (hook) {
+      // Haken vorn oben eingehängt: man rutscht unter dem Anker hindurch, bis das Seil spannt und hochzieht
+      const h = game.hooks[0];
+      h.state = 'attached';
+      h.anchor.copy(start).addScaledVector(dir, hook.ahead ?? 16).add(new V(0, hook.up ?? 13, 0));
+      h.length = start.distanceTo(h.anchor) - 1.5;
+      h.mover = null;
+    }
+    inp.keys.clear();
+    if (held) inp.keys.add('KeyW');
+    const log = [];
+    const canvas = document.createElement('canvas'); canvas.width = 260 * shots.length; canvas.height = 400;
+    const g = canvas.getContext('2d');
+    const perp = new V(-dir.z, 0, dir.x);
+    let shot = 0, last = '';
+    // Ruck-Messung: größte Drehung eines Gelenks (Welt) von einem Bild zum nächsten, in Grad
+    const J = game.character.joints, names = ['hips', 'chest', 'head', 'thighL', 'thighR', 'shinL', 'shinR', 'upperArmL', 'upperArmR', 'forearmL', 'forearmR'];
+    const qs = names.map(() => new THREE.Quaternion()), qn = new THREE.Quaternion();
+    const jerk = {}; let primed = false, phase = '';
+    for (let f = 0; f <= shots[shots.length - 1]; f++) {
+      if (f === release) inp.keys.clear();
+      sim(1);
+      names.forEach((n, k) => {
+        J[n].getWorldQuaternion(qn);
+        if (primed) {
+          const d = (2 * Math.acos(Math.min(1, Math.abs(qn.dot(qs[k]))))) * 57.3, ph = P.landMove ? P.landMove.type : P.state;
+          // erste 4 Bilder einer neuen Phase getrennt zählen: dort zeigen sich Sprünge im Übergang
+          const key = ph + (f - (jerk['_' + ph] ?? (jerk['_' + ph] = f)) < 4 ? '>' : '');
+          if (d > (jerk[key]?.[0] ?? 0)) jerk[key] = [+d.toFixed(1), f, n];
+        }
+        qs[k].copy(qn);
+      });
+      primed = true;
+      const m = P.landMove ? P.landMove.type : P.state;
+      if (m !== last) { log.push(f + ':' + m + '@' + Math.hypot(P.vel.x, P.vel.z).toFixed(1)); last = m; }
+      if (f === shots[shot]) {
+        const c = game.renderPos;
+        look(c.clone().addScaledVector(perp, 3.6 * Math.sin(ang)).addScaledVector(dir, -3.6 * Math.cos(ang)).add(new V(0, 0.4, 0)), c.clone().add(new V(0, -0.35, 0)), 34);
+        const sw = (cv.height * 260) / 400;
+        g.drawImage(cv, (cv.width - sw) / 2, 0, sw, cv.height, shot * 260, 0, 260, 400);
+        g.fillStyle = 'rgba(13,8,18,0.7)'; g.fillRect(shot * 260 + 6, 6, 120, 24);
+        g.fillStyle = '#ffd400'; g.font = '700 14px Segoe UI, sans-serif'; g.fillText((f / 60).toFixed(2) + ' s ' + m, shot * 260 + 12, 23);
+        shot++;
+      }
+    }
+    inp.keys.clear();
+    restore();
+    await post(name + '.png', canvas);
+    for (const [k, v] of Object.entries(jerk)) if (k[0] !== '_') log.push('jerk ' + k + ' ' + v.join(' '));
+    return log;
+  };
+  // Wallrun-Test: an eine hohe Fassade springen; mode 'up' = nach oben schauen und W halten (senkrecht hinauf),
+  // 'side' = schräg anlaufen, an der Wand entlang. Bilder von der Seite (view 'side') oder aus der Spielkamera ('cam').
+  const wallTest = async (name, { mode = 'up', shots = [2, 8, 14, 20, 28, 36, 46, 58, 70], view = 'side', below = 0 } = {}) => {
+    const P = game.player, V = P.pos.constructor, cv = game.renderer.domElement, inp = game.input, city = game.city;
+    lit = view !== 'cam';
+    pose();
+    const out = [];
+    city.query(P.pos.x - 300, P.pos.z - 300, P.pos.x + 300, P.pos.z + 300, out);
+    let start = null, n = null;
+    for (const b of out.filter((b) => !b.noRender && !b.noWallrun && b.maxY - b.minY > 70 && b.maxZ - b.minZ > 14 && b.maxX - b.minX > 14)) {
+      const s0 = new V(b.maxX + 3, below ? b.maxY - below : b.minY + 16, (b.minZ + b.maxZ) / 2), nn = new V(1, 0, 0);
+      const hit = city.raycast(s0, nn.clone().negate(), 6);
+      if (!hit || hit.point.x < b.maxX - 0.2 || city.raycast(s0, new V(0, 1, 0), below ? 3 : 40) || city.raycast(s0, nn, 12)) continue;
+      start = s0; n = nn; break;
+    }
+    if (!start) return ['keine Wand'];
+    const t = new V(-n.z, 0, n.x);
+    P.reset(start, Math.atan2(n.x, n.z));
+    game.renderPos.copy(P.pos);
+    if (mode === 'up') { P.vel.copy(n).multiplyScalar(-11).setY(5); game.rig.pitch = 1.05; game.rig.yaw = Math.atan2(n.x, n.z); }
+    else { P.vel.copy(n).multiplyScalar(-8).addScaledVector(t, 14).setY(3); game.rig.pitch = 0.05; game.rig.yaw = Math.atan2(-t.x, -t.z); P.facingYaw = game.rig.yaw; }
+    game.rig.updateBasis?.();
+    inp.keys.clear(); inp.keys.add('KeyW');
+    const log = [];
+    const canvas = document.createElement('canvas'); canvas.width = 260 * shots.length; canvas.height = 400;
+    const g = canvas.getContext('2d');
+    let shot = 0, last = '';
+    for (let f = 0; f <= shots[shots.length - 1]; f++) {
+      sim(1);
+      const m = P.state + (P.state === 'wallrun' ? '/' + game.wallUp.toFixed(2) : '');
+      if (P.state !== last) { log.push(f + ':' + P.state + ' y' + P.pos.y.toFixed(1) + ' v' + P.vel.length().toFixed(1)); last = P.state; }
+      if (f === shots[shot]) {
+        if (view === 'side') {
+          const c = game.renderPos;
+          // genau entlang der Wandfläche: die Wand erscheint als senkrechte Kante, die Füße müssen auf ihr stehen
+          const wx = c.clone().addScaledVector(n, 0.62);
+          look(wx.clone().addScaledVector(t, 5.5).addScaledVector(n, 0.05), wx, 36);
+        } else game.post.render();
+        const sw = (cv.height * 260) / 400;
+        g.drawImage(cv, (cv.width - sw) / 2, 0, sw, cv.height, shot * 260, 0, 260, 400);
+        g.fillStyle = 'rgba(13,8,18,0.7)'; g.fillRect(shot * 260 + 6, 6, 150, 24);
+        g.fillStyle = '#ffd400'; g.font = '700 14px Segoe UI, sans-serif'; g.fillText((f / 60).toFixed(2) + ' s ' + m, shot * 260 + 12, 23);
+        shot++;
+      }
+    }
+    inp.keys.clear();
+    restore();
+    await post(name + '.png', canvas);
+    return log;
+  };
+  window.dbg = { sim, sheet, thumb, look, post, pose, restore, closeup, motion, sunRoof, stress, soak, clipStrip, landTest, wallTest };
   window.sim = sim;
 }

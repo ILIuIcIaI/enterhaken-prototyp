@@ -24,6 +24,15 @@ export function createTuning(game) {
   lo.add(CONFIG.locomotion, 'facingRate', 2, 40, 0.5).name('Körper folgt');
   lo.add(CONFIG.locomotion, 'pivotAngle', 1.2, 3.1, 0.05).name('Wende ab (rad)');
 
+  const ld = gui.addFolder('Landung: Rolle & Slide');
+  ld.add(CONFIG.landing, 'rollSpeed', 6, 25, 0.5).name('Rolle ab (m/s)');
+  ld.add(CONFIG.landing, 'rollMax', 3, 30, 0.5).name('Tempo in der Rolle');
+  ld.add(CONFIG.landing, 'rollKeep', 0, 20, 0.5).name('Rolle bremst (Taste)');
+  ld.add(CONFIG.landing, 'rollBrake', 0, 40, 0.5).name('Rolle bremst (ohne)');
+  ld.add(CONFIG.landing, 'slideFriction', 0, 15, 0.1).name('Slide-Reibung');
+  ld.add(CONFIG.landing, 'slideDrag', 0, 1.5, 0.01).name('Slide-Reibung je m/s');
+  ld.add(CONFIG.landing, 'slideSteer', 0, 4, 0.05).name('Slide lenken');
+  ld.add(CONFIG.landing, 'slideExit', 2, 10, 0.25).name('Aufstehen unter (m/s)');
   const da = gui.addFolder('Dash & Gas-Schub');
   da.add(CONFIG.dash, 'speed', 5, 60, 1).name('Dash-Tempo');
   da.add(CONFIG.dash, 'duration', 0.05, 1, 0.01).name('Dash-Dauer (s)');

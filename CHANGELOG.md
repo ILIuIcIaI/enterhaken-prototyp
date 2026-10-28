@@ -3,6 +3,37 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.7.0] – 2026-10-29
+
+Landing at speed is now part of the flow: a shoulder roll into a fast slide or into a stumble, a real slide when the
+rope drags you across a roof, and wall runs straight up a facade with the feet on the wall.
+
+### Added
+- **Shoulder roll:** landing faster than about 38 km/h without a rope makes the character roll over the right
+  shoulder, diagonally across the back – instead of skidding along in a crouch. The roll keeps the momentum and gets
+  quicker the faster you land.
+- **Roll → slide** (direction key held): the roll flows straight into a feet-first slide – sitting low on the hip,
+  the front leg stretched out flat, the other tucked under, leaning back with one hand on the ground. The slide is
+  fast (about 60 km/h out of a fast landing), carries you roughly 12 m and can be steered a little; release the key
+  or run out of speed and the character pushes off into a run. Made for chaining: clearing a roof you couldn't
+  fly over without losing the flow.
+- **Roll → stumble** (no key held): coming up out of the roll, the foot catches – the upper body pitches forward, both
+  arms fly out to the sides and circle behind the body, and a few quick lunging steps catch the fall before the
+  character stands again (about 9 m). Modeled on 2B's stumble in NieR:Automata.
+- **Slide on the rope:** touching down while the rope is still pulling no longer skids the character across the
+  ground in a crouch – it slides feet first until the rope lifts it off again and blends back into the swing.
+- **Vertical wall run:** running straight up a wall now looks like it does in anime – the wall becomes the floor,
+  the feet are on the facade, the body sticks out sideways from it and leans into the run. Between straight up and
+  sideways the pose blends smoothly; at the top it straightens up again over the edge.
+- New tuning section "Landung: Rolle & Slide" (G): roll threshold and speed, braking, slide friction, steering and
+  the speed at which the character gets up.
+
+### Changed
+- Feet sit on the wall during every wall run instead of sinking into it.
+- Step rate on the wall matches the climbing speed, so the feet don't slide over the facade.
+- Rolls, slides and stumbles move at the speed their animation shows (the steps of the stumble follow the actual
+  speed, no foot sliding); all transitions blend without pops.
+
 ## [0.6.1] – 2026-10-28
 
 Patch: capes, skirts and coat tails are fully dynamic now, 2B has a new skirt, and Steve is textured on all sides.
@@ -283,6 +314,7 @@ First playable prototype: a sandbox without levels or goals for testing swinging
 - **HUD and tools:** crosshair with range indicator, speed, height, gas and state; tuning menu (G),
   slow motion (T), screenshot (P); start script with a local PowerShell server.
 
+[0.7.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.7.0
 [0.6.1]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.6.1
 [0.6.0]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.6.0
 [0.5.2]: https://github.com/ILIuIcIaI/enterhaken-prototyp/releases/tag/v0.5.2

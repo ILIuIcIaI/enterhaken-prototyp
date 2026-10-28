@@ -17,6 +17,7 @@ export const JOINTS = [
 
 // Arme hängen leicht abgespreizt, damit die Hände außen an der weiten Jacke vorbeischwingen
 const ARM_SPREAD = 8;
+const _X = new THREE.Vector3(1, 0, 0), _Y = new THREE.Vector3(0, 1, 0), _ry = new THREE.Quaternion();
 
 // Gangzyklen: Dauer eines Doppelschritts bei Referenztempo
 export const GAITS = {
@@ -59,7 +60,9 @@ const get = (pose, joint, i) => {
   return v;
 };
 
-// keys: [[zeit, pose], ...]; pose.bob = Höhenversatz der Figur in Metern
+// keys: [[zeit, pose], ...]; pose.bob = Höhenversatz der Figur in Metern,
+// pose.pivot = Höhenversatz des Drehpunkts (flip-Knoten) – bei der Rolle dreht sich der Körper knapp über dem Boden,
+// pose.flipYaw = Gierwinkel der Drehachse von flip (Grad) – flip[0] dreht dann um diese schräge Achse
 export function buildClip(name, keys, baseY, loop = true) {
   const duration = keys[keys.length - 1][0];
   const fps = 50;
@@ -85,13 +88,21 @@ export function buildClip(name, keys, baseY, loop = true) {
 
   const tracks = [];
   const e = new THREE.Euler(), q = new THREE.Quaternion(), prev = new THREE.Quaternion();
+  const axisRoll = keys.some(([, p]) => p.flipYaw !== undefined);
   const D = Math.PI / 180;
   for (const joint of JOINTS) {
     const values = new Float32Array(frames * 4);
     for (let f = 0; f < frames; f++) {
       const t = times[f];
-      e.set(sample(t, (p) => get(p, joint, 0)) * D, sample(t, (p) => get(p, joint, 1)) * D, sample(t, (p) => get(p, joint, 2)) * D);
-      q.setFromEuler(e);
+      if (joint === 'flip' && axisRoll) {
+        // Drehung um eine waagrechte Achse, die um flipYaw gegen die Querachse gedreht ist (diagonale Schulterrolle)
+        const yaw = sample(t, (p) => p.flipYaw ?? 0) * D;
+        _ry.setFromAxisAngle(_Y, yaw);
+        q.setFromAxisAngle(_X, sample(t, (p) => get(p, joint, 0)) * D).premultiply(_ry).multiply(_ry.invert());
+      } else {
+        e.set(sample(t, (p) => get(p, joint, 0)) * D, sample(t, (p) => get(p, joint, 1)) * D, sample(t, (p) => get(p, joint, 2)) * D);
+        q.setFromEuler(e);
+      }
       if (f > 0 && q.dot(prev) < 0) q.set(-q.x, -q.y, -q.z, -q.w);
       prev.copy(q);
       q.toArray(values, f * 4);
@@ -101,6 +112,11 @@ export function buildClip(name, keys, baseY, loop = true) {
   const pos = new Float32Array(frames * 3);
   for (let f = 0; f < frames; f++) pos[f * 3 + 1] = baseY + sample(times[f], (p) => p.bob ?? 0);
   tracks.push(new THREE.VectorKeyframeTrack('model.position', times, pos));
+  if (keys.some(([, p]) => p.pivot !== undefined)) {
+    const piv = new Float32Array(frames * 3);
+    for (let f = 0; f < frames; f++) piv[f * 3 + 1] = sample(times[f], (p) => p.pivot ?? 0);
+    tracks.push(new THREE.VectorKeyframeTrack('flip.position', times, piv));
+  }
   return new THREE.AnimationClip(name, duration, tracks);
 }
 
@@ -297,13 +313,190 @@ const HERO_LAND = { // Superhelden-Landung: Knie und Hand am Boden
   upperArmL: [-42, 0, -40], forearmL: [28, 0, 0], upperArmR: [28, 0, 12], forearmR: [12, 0, 0], handR: [40, 0, 0],
   bob: -0.42,
 };
-const SLIDE = {
-  hips: [0, -32, 0], spine: [-10, 10, 0], chest: [-12, 18, 0], head: [10, 18, 0],
-  thighL: [72, 0, -12], shinL: [-84, 0, 0], footL: [10, 0, 0],
-  thighR: [-22, 0, 18], shinR: [-104, 0, 0], footR: [-30, 0, 0],
-  upperArmL: [24, 0, -58], forearmL: [30, 0, 0], upperArmR: [-10, 0, 54], forearmR: [24, 0, 0],
-  bob: -0.24,
+// ------------------------------------------------------------------ Rolle, Slide, Aufstehen, Stolpern
+// Schulterrolle (wie im Parkour): Hände auf den Boden, Kopf zur Gegenseite, die rechte Schulter setzt auf, der
+// Körper rollt diagonal über den Rücken zur linken Hüfte (flip dreht um eine schräge Achse, flipYaw). Zwei Enden:
+// auf der linken Hüfte sitzend mit gestrecktem rechten Bein (→ Slide) oder über das linke Knie hoch (→ Stolpern).
+const ROLL_TOUCH = {
+  spine: [-28, 0, 0], chest: [-22, 12, 0], neck: [-6, 0, 0], head: [-10, 25, 0],
+  thighL: [60, 0, -6], shinL: [-80, 0, 0], footL: [16, 0, 0], thighR: [75, 0, 6], shinR: [-100, 0, 0], footR: [24, 0, 0],
+  upperArmL: [70, 0, -15], forearmL: [10, 0, 0], upperArmR: [80, 0, 10], forearmR: [50, 0, 0],
+  bob: -0.3, pivot: 0, flip: [0, 0, 0], flipYaw: -52,
 };
+const ROLL_DIVE = { // rechte Schulter geht zum Boden, rechter Arm bildet einen Bogen, das hintere Bein drückt
+  hips: [0, 10, 0], spine: [-40, 6, -8], chest: [-38, 18, -10], neck: [-20, 0, 0], head: [-25, 35, -10],
+  thighL: [40, 0, -6], shinL: [-50, 0, 0], footL: [-10, 0, 0], thighR: [110, 0, 4], shinR: [-120, 0, 0], footR: [30, 0, 0],
+  upperArmL: [60, 0, -30], forearmL: [20, 0, 0], upperArmR: [100, 0, 30], forearmR: [70, 0, 0],
+  bob: -0.04, pivot: -0.22, flipYaw: -52,
+};
+const ROLL_OVER = { // über Schulter und Rücken, die Beine kommen seitlich mit
+  hips: [0, 8, 0], spine: [-40, 8, -10], chest: [-36, 18, -8], neck: [-22, 0, 12], head: [-30, 38, 22],
+  thighL: [100, 0, -14], shinL: [-120, 0, 0], footL: [20, 0, 0], thighR: [95, 0, 10], shinR: [-110, 0, 0], footR: [24, 0, 0],
+  upperArmL: [50, 0, -40], forearmL: [40, 0, 0], upperArmR: [96, 0, 34], forearmR: [70, 0, 0],
+  bob: -0.03, pivot: -0.26, flipYaw: -52,
+};
+const ROLL_BACK = { // quer über den Rücken zur linken Hüfte, das linke Bein faltet sich unter
+  hips: [0, 4, 0], spine: [-30, 4, -6], chest: [-26, 10, -4], neck: [-14, 0, 8], head: [-18, 26, 14],
+  thighL: [70, 0, -20], shinL: [-140, 0, 0], footL: [10, 0, 0], thighR: [100, 0, 10], shinR: [-100, 0, 0], footR: [20, 0, 0],
+  upperArmL: [20, 0, -44], forearmL: [30, 0, 0], upperArmR: [70, 0, 30], forearmR: [50, 0, 0],
+  bob: -0.03, pivot: -0.46, flipYaw: -52,
+};
+const ROLL_HIP = { // auf der linken Hüfte, Oberkörper richtet sich auf, linke Hand stützt
+  spine: [-20, 0, 0], chest: [-15, 0, 0], neck: [2, 0, 0], head: [10, 5, 0],
+  thighL: [20, 0, -35], shinL: [-125, 0, 0], footL: [-6, 0, 0], thighR: [70, 0, 8], shinR: [-60, 0, 0], footR: [14, 0, 0],
+  upperArmL: [-20, 0, -40], forearmL: [16, 0, 0], handL: [-20, 0, 0], upperArmR: [50, 0, 25], forearmR: [35, 0, 0],
+  bob: -0.2, pivot: -0.32, flipYaw: -52,
+};
+const ROLL_KNEEL = { // Ende → Stolpern: linkes Knie fast am Boden, rechter Fuß aufgesetzt, bereit zum Hochdrücken
+  hips: [0, -8, 0], spine: [-22, 0, 0], chest: [-18, 0, 0], neck: [4, 0, 0], head: [12, 0, 0],
+  thighR: [78, 0, 8], shinR: [-92, 0, 0], footR: [14, 0, 0], thighL: [-8, 0, -8], shinL: [-112, 0, 0], footL: [-30, 0, 0],
+  upperArmL: [30, 0, -30], forearmL: [30, 0, 0], upperArmR: [40, 0, 30], forearmR: [36, 0, 0],
+  bob: -0.36, pivot: 0, flip: [-360, 0, 0], flipYaw: -52,
+};
+// Rolle mit Taste: sie kommt nicht erst hoch, sondern legt sich aus der Rolle direkt zurück in den Slide – der
+// Oberkörper lehnt sich ab dem Rücken stetig zurück, die Hüfte sinkt stetig ab (keine Sitz-Zwischenhaltung)
+const ROLL_BACK_S = { ...ROLL_BACK, hips: [8, 4, 0], spine: [-24, 4, -6], chest: [-20, 10, -4], bob: -0.06 };
+const ROLL_HIP_S = {
+  hips: [16, 0, 4], spine: [-6, 0, 0], chest: [-4, 2, 0], neck: [-6, 0, 0], head: [-4, 5, 0],
+  thighL: [20, 0, -38], shinL: [-125, 0, 0], footL: [-14, 0, 0], thighR: [45, 0, 6], shinR: [-25, 0, 0], footR: [10, 0, 0],
+  upperArmL: [-40, 0, -32], forearmL: [12, 0, 0], handL: [-30, 0, 0], upperArmR: [44, 0, 34], forearmR: [42, 0, 0],
+  bob: -0.36, pivot: -0.32, flipYaw: -52,
+};
+// Slide (Füße voraus, wie ein Baseball- oder Parkour-Slide): Po und linker Oberschenkel liegen auf dem Boden,
+// das rechte Bein ist fast gestreckt flach nach vorn (Ferse am Boden, Zehen hoch), das linke ist untergeschlagen –
+// Knie nach außen, Unterschenkel unter dem rechten Knie. Oberkörper ca. 45° zurückgelehnt, Blick nach vorn, die
+// linke Hand stützt hinten am Boden, der rechte Arm balanciert vorn. Das Becken liegt dabei ~14 cm über dem Boden.
+const SLIDE = {
+  hips: [43, 8, 10], spine: [-2, 4, 0], chest: [-4, 6, 0], neck: [-10, 0, 0], head: [-14, 6, 0],
+  thighR: [29, 0, 4], shinR: [-6, 0, 0], footR: [6, 0, 0],
+  thighL: [20, 0, -42], shinL: [-124, 0, 0], footL: [-24, 0, 0],
+  upperArmL: [-54, 0, -24], forearmL: [8, 0, 0], handL: [-40, 0, 0],
+  upperArmR: [40, 0, 40], forearmR: [48, 0, 0],
+  bob: -0.7,
+};
+const SLIDE_B = { ...SLIDE, chest: [-6, 7, 0], head: [-16, 4, 0], upperArmR: [46, 0, 44], forearmR: [54, 0, 0], thighR: [28, 0, 5], bob: -0.698 };
+// Aufstehen: das vordere Bein setzt auf, das hintere drückt ab, Oberkörper kommt nach vorn
+const RISE_PUSH = {
+  hips: [8, -6, 0], spine: [-20, 0, 0], chest: [-18, 0, 0], neck: [2, 0, 0], head: [12, 0, 0],
+  thighR: [56, 0, 4], shinR: [-72, 0, 0], footR: [20, 0, 0], thighL: [28, 0, -14], shinL: [-108, 0, 0], footL: [-22, 0, 0],
+  upperArmL: [-10, 0, -30], forearmL: [30, 0, 0], upperArmR: [40, 0, 20], forearmR: [40, 0, 0],
+  bob: -0.3,
+};
+const RISE_END = {
+  spine: [-8, 0, 0], chest: [-6, 0, 0], head: [2, 0, 0],
+  thighR: [22, 0, 4], shinR: [-22, 0, 0], footR: [4, 0, 0], thighL: [-10, 0, -4], shinL: [-30, 0, 0], footL: [-12, 0, 0],
+  upperArmL: [-14, 0, -8], forearmL: [24, 0, 0], upperArmR: [18, 0, 8], forearmR: [26, 0, 0],
+  bob: -0.06,
+};
+// ------------------------------------------------------------------ Stolpern
+// Nach 2B in NieR:Automata (1080p-Spielszene, Kamera hinter ihr, in 0,1-s-Schritten ausgewertet):
+//   0,0 s  sie bleibt hängen – innerhalb von 0,1 s fliegen BEIDE Arme weit zur Seite, fast waagrecht (wie beim
+//          Balancieren), Ellbogen leicht gebeugt; der Oberkörper kippt nach vorn, der Schritt wird kurz
+//   0,1–0,3 s  Arme bleiben weit draußen und sinken etwas, hastige kurze Fangschritte
+//   0,3–0,6 s  der linke Arm flattert noch ein-, zweimal seitlich hoch, der rechte bleibt tief vorn
+//   0,6–0,8 s  Arme zurück in den Laufschwung, Oberkörper wieder aufrecht – kein Kreisen, kein Rudern.
+// Hier kommt sie aus der Rolle hoch, stolpert genauso und läuft sich bis zum Stand aus.
+// Player fährt genau den Tempoverlauf speed; aus ihm ergeben sich die Schrittlängen (Füße rutschen nicht).
+export const STUMBLE = {
+  dur: 1.45,
+  contacts: [0, 0.16, 0.32, 0.49, 0.67, 0.87, 1.08, 1.27], // kurze, hastige Schritte; rechts steht schon aus der Rolle
+  speed: [[0, 9.4], [0.45, 9.3], [0.8, 7.2], [1.05, 4.2], [1.3, 1.2], [1.45, 0]],
+};
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+// stückweise Kurve mit weichen Übergängen (Kosinus zwischen den Stützstellen)
+export function curveAt(pts, t) {
+  if (t <= pts[0][0]) return pts[0][1];
+  for (let i = 0; i < pts.length - 1; i++) {
+    const [t0, v0] = pts[i], [t1, v1] = pts[i + 1];
+    if (t <= t1) return v0 + (v1 - v0) * (0.5 - 0.5 * Math.cos(Math.PI * (t - t0) / (t1 - t0)));
+  }
+  return pts[pts.length - 1][1];
+}
+function stumbleKeys() {
+  const S = STUMBLE, C = S.contacts, n = C.length, D = 180 / Math.PI, LEG = 0.74;
+  const vAt = (t) => curveAt(S.speed, t);
+  const stepEnd = (i) => (i < n - 1 ? C[i + 1] : S.dur);
+  // Stand eines Schritts: Anteil der Schrittdauer am Boden (schnell = lange Flugphase), halber Beinwinkel
+  const step = C.map((c, i) => {
+    const T = stepEnd(i) - c, v = vAt(c + T * 0.25);
+    const duty = Math.min(0.9, Math.max(0.45, 0.45 + (6 - v) * 0.1));
+    const len = v * duty * T;
+    return { c, T, duty, a: Math.asin(Math.min(0.85, len / 2 / LEG)) * D, amp: Math.min(1, v / 6) };
+  });
+  const legAt = (side, t) => {
+    const own = C.map((c, i) => i).filter((i) => (i % 2 === 0) === (side === 'R'));
+    let k = -1;
+    for (const i of own) if (t >= C[i]) k = i;
+    const next = own.find((i) => C[i] > t);
+    if (k >= 0) {
+      const s = step[k], sEnd = s.c + s.duty * s.T;
+      if (t <= sEnd) { // Standphase: Fuß steht, Körper zieht darüber
+        const u = (t - s.c) / (s.duty * s.T);
+        const thigh = s.a - 2 * s.a * u, shin = -(14 + 28 * s.amp * Math.sin(Math.PI * u));
+        return { thigh, shin, foot: -(thigh + shin) - 22 * sstep(0.65, 1, u), stance: u };
+      }
+      // Schwung: das Bein bleibt erst lang nach hinten gestreckt (Ausfallschritt), dann schnellt das Knie hoch nach vorn
+      const t1 = next !== undefined ? C[next] : S.dur, a1 = next !== undefined ? step[next].a : 0;
+      const w = Math.min(1, (t - sEnd) / Math.max(0.05, t1 - sEnd));
+      const back = 20 * s.amp * Math.sin(Math.PI * Math.min(1, w / 0.4)) * (w < 0.4 ? 1 : 0);
+      const thigh = -s.a + (a1 + s.a) * sstep(0.15, 1, w) + 30 * s.amp * Math.sin(Math.PI * sstep(0.3, 1, w)) - back;
+      const shin = -(14 + (45 + 75 * s.amp) * Math.sin(Math.PI * sstep(0.12, 1, w)));
+      return { thigh, shin, foot: -26 + 34 * w };
+    }
+    // linkes Bein vor seinem ersten Aufsetzen: schwingt aus der Knie-Haltung nach vorn
+    const t1 = C[next], w = t / t1, a1 = step[next].a;
+    return { thigh: -10 + (a1 + 10) * sstep(0, 1, w) + 20 * Math.sin(Math.PI * w), shin: -(40 + 70 * Math.sin(Math.PI * w)), foot: -20 + 30 * w };
+  };
+  const kneel = { ...ROLL_KNEEL };
+  delete kneel.flip; delete kneel.pivot; delete kneel.flipYaw;
+  const keys = [];
+  const dt = 1 / 30;
+  for (let t = 0; t <= S.dur + 1e-6; t += dt) {
+    const lean = curveAt([[0, 40], [0.06, 36], [0.16, 52], [0.36, 50], [0.6, 38], [0.88, 20], [1.15, 7], [1.45, 0]], t);
+    const hipLean = 0.35 * lean;
+    const p = {};
+    for (const side of ['L', 'R']) {
+      const g = legAt(side, t);
+      p['thigh' + side] = [g.thigh + hipLean, 0, side === 'R' ? 5 : -5];
+      p['shin' + side] = [g.shin, 0, 0];
+      p['foot' + side] = [g.foot, 0, 0];
+      p['_' + side] = g;
+    }
+    const sR = p._R.stance !== undefined ? 1 : p._L.stance !== undefined ? -1 : 0;
+    const yaw = 6 * sR * (t < 1.1 ? 1 : 0.4);
+    p.hips = [-hipLean, yaw, 0];
+    p.spine = [-0.3 * lean, -yaw * 0.4, 0];
+    p.chest = [-0.35 * lean, -yaw * 0.7 - 6 * sstep(0.1, 0.3, t) * (1 - sstep(0.9, 1.2, t)), 0];
+    p.neck = [0.3 * lean, 0, 0];
+    p.head = [0.42 * lean, 0, 0];
+    // Arme: beim Hängenbleiben fliegen beide seitlich nach hinten und kreisen dort hinter dem gekippten Oberkörper,
+    // als wolle sie sich fangen (links und rechts gegenläufig, ein Umlauf ≈ 0,34 s); dann zurück in den Laufschwung
+    const fl = sstep(0.03, 0.13, t);
+    const circ = fl * (1 - sstep(0.66, 0.9, t));
+    const runW = sstep(0.66, 0.9, t) * (1 - sstep(1.2, 1.45, t));
+    for (const [side, sg, other, off] of [['L', -1, 'R', 0], ['R', 1, 'L', 0.7]]) {
+      const ph = (2 * Math.PI * Math.max(0, t - 0.06)) / 0.34 + off;
+      const swing = 0.45 * p['_' + other].thigh * runW;
+      const flex = circ * (-48 + 26 * Math.sin(ph)) + swing + (1 - circ) * 6;
+      const abd = 12 + circ * (42 + 14 * Math.cos(ph));
+      p['upperArm' + side] = [flex, 0, sg * abd];
+      p['forearm' + side] = [20 + circ * (16 + 10 * Math.sin(ph + 1)) + 14 * runW, 0, 0];
+    }
+    delete p._L; delete p._R;
+    let bob = curveAt([[0, -0.36], [0.12, -0.18], [0.3, -0.24], [0.6, -0.18], [0.95, -0.08], [1.45, 0]], t);
+    for (let i = 0; i < n; i++) {
+      const s = step[i], u = (t - s.c) / (s.duty * s.T);
+      if (u >= 0 && u <= 1) bob -= 0.03 * s.amp * Math.sin(Math.PI * u);
+      else if (t > s.c && t < stepEnd(i)) bob += 0.025 * s.amp * Math.sin(Math.PI * (t - s.c - s.duty * s.T) / ((1 - s.duty) * s.T));
+    }
+    p.bob = bob;
+    let pose = lerpPose(p, kneel, 1 - sstep(0, 0.14, t));
+    pose = lerpPose(pose, IDLE_R, sstep(1.2, 1.45, t));
+    keys.push([+t.toFixed(3), pose]);
+  }
+  keys[keys.length - 1][0] = S.dur;
+  return keys;
+}
 // Schwingen in drei Phasen (Zeit des Clips = Position im Bogen, siehe Character.update):
 // Abschwung – gestreckt, Beine hängen nach hinten; unten – Beine schwingen durch;
 // Aufschwung – Hüfte knickt, Beine schwingen nach vorn und oben, Knie beugen sich.
@@ -385,7 +578,26 @@ export function createClips(baseY) {
     fallFast: buildClip('fallFast', [[0, FALL_FAST_A], [0.35, FALL_FAST_B], [0.7, FALL_FAST_A]], baseY),
     land: buildClip('land', [[0, CROUCH], [0.12, { ...CROUCH, bob: -0.22 }], [0.45, IDLE_R]], baseY, false),
     landHard: buildClip('landHard', [[0, HERO_LAND], [0.5, { ...HERO_LAND, bob: -0.4 }], [0.9, IDLE_R]], baseY, false),
-    slide: buildClip('slide', [[0, SLIDE], [0.5, { ...SLIDE, bob: -0.26, chest: [-12, 20, 0] }], [1.0, SLIDE]], baseY),
+    slide: buildClip('slide', [[0, SLIDE], [0.6, SLIDE_B], [1.2, SLIDE]], baseY),
+    // zeitgesteuert (Character.update setzt die Zeit aus dem Fortschritt der Bewegung)
+    roll: buildClip('roll', [
+      [0, ROLL_TOUCH],
+      [0.08, { ...ROLL_DIVE, flip: [-40, 0, 0] }],
+      [0.18, { ...ROLL_OVER, flip: [-150, 0, 0] }],
+      [0.28, { ...ROLL_BACK_S, flip: [-255, 0, 0] }],
+      [0.38, { ...ROLL_HIP_S, flip: [-322, 0, 0] }],
+      [0.5, { ...SLIDE, pivot: 0, flip: [-360, 0, 0], flipYaw: -52 }],
+    ], baseY, false),
+    rollUp: buildClip('rollUp', [
+      [0, ROLL_TOUCH],
+      [0.08, { ...ROLL_DIVE, flip: [-40, 0, 0] }],
+      [0.18, { ...ROLL_OVER, flip: [-150, 0, 0] }],
+      [0.28, { ...ROLL_BACK, flip: [-255, 0, 0] }],
+      [0.38, { ...ROLL_HIP, flip: [-322, 0, 0] }],
+      [0.5, ROLL_KNEEL],
+    ], baseY, false),
+    rise: buildClip('rise', [[0, SLIDE], [0.14, RISE_PUSH], [0.34, RISE_END]], baseY, false),
+    stumble: buildClip('stumble', stumbleKeys(), baseY, false),
     swing: buildClip('swing', [[0, SWING_DOWN], [0.5, SWING_BOTTOM], [1.0, SWING_UP]], baseY, false),
     reel: buildClip('reel', [[0, REEL], [0.25, { ...REEL, thighL: [80, 0, -6], thighR: [82, 0, 6] }], [0.5, REEL]], baseY),
     boost: buildClip('boost', [[0, BOOST], [0.25, { ...BOOST, thighL: [-14, 0, -4], thighR: [-8, 0, 4] }], [0.5, BOOST]], baseY),

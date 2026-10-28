@@ -4,7 +4,7 @@ Third-person prototype: swing, glide and wall-run with two grappling hooks throu
 dystopian high-rise city on an island at dusk. Ten playable characters, picked on the start screen and purely
 cosmetic. No levels, no goals – just a sandbox for testing feel and physics.
 
-**Current version: 0.6.1** · see [CHANGELOG.md](CHANGELOG.md) for changes
+**Current version: 0.7.0** · see [CHANGELOG.md](CHANGELOG.md) for changes
 
 ![The ten playable characters](docs/screenshots/figuren.png)
 
@@ -19,6 +19,10 @@ cosmetic. No levels, no goals – just a sandbox for testing feel and physics.
 | ![Character shadow with cape](docs/screenshots/schatten.png) | |
 
 ![Cloth physics while walking, sprinting, jumping and swinging](docs/screenshots/stoff.png)
+
+![Landing at speed: shoulder roll into a slide](docs/screenshots/rolle-slide.png)
+
+![Vertical wall run](docs/screenshots/wallrun.png)
 
 ## Getting started
 
@@ -68,7 +72,12 @@ press **Los!** (or Enter). Esc pauses the game and opens the character grid agai
 - **Rope physics:** point mass with gravity and air drag, slightly elastic rope (spring + damper, hard limit at 1.5 m
   of stretch), smooth reeling in, steering perpendicular to the rope, a small boost when letting go, ropes wrap
   around edges.
-- **Wall run:** hitting a facade in mid-air automatically starts a wall run; wall jump with a flip.
+- **Wall run:** hitting a facade in mid-air automatically starts a wall run; wall jump with a flip. Running straight
+  up, the character stands on the wall like in an anime, body sticking out sideways from the facade.
+- **Landing at speed:** above about 38 km/h the character rolls over the shoulder. Holding a direction key turns the
+  roll into a fast feet-first slide (about 12 m, steerable, then back into a run); without a key it stumbles forward
+  with circling arms and catches itself after a few lunging steps. Touching down while the rope still pulls turns
+  into a slide until the rope lifts you off again.
 
 ## World
 
@@ -146,7 +155,7 @@ All characters play identically – only the look differs. They come without wea
 
 All values live in `src/config.js` and can be changed live in-game with **G** – physics, movement (walk/sprint speed,
 inertia, turning, turnaround), dash & gas boost, glider (angle of attack, lift, drag, banking), rope, gas, wall run,
-camera, graphics and city seed.
+camera, graphics and city seed – plus the landing roll and slide (threshold, speed, braking, slide friction).
 
 ## Structure
 

@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { toonMaterial, outlineMaterial } from './toon.js';
-import { createClips, GAITS, JOINTS } from './animations.js';
+import { createClips, GAITS, JOINTS, STUMBLE } from './animations.js';
 import { Inertializer, LimbSpring, ArmAim } from './motion.js';
 import { BASE_B, AP, PartBuilder } from './charkit.js';
 import { getDesign } from './designs/index.js';
@@ -10,6 +10,9 @@ import { CONFIG } from './config.js';
 // Spielfigur: gemeinsames Skelett, Animationssteuerung, prozedurale Ebenen und Stoffsimulation.
 // Das Aussehen (Proportionen, Kleidung, Haare, Gesicht, Stoffteile) liefert ein Design aus src/designs/.
 const ONE_SHOTS = ['jump', 'land', 'landHard', 'flip', 'dash', 'stop', 'pivot'];
+// Bewegungen nach schnellem Aufkommen: Clip-Zeit folgt dem Fortschritt in der Physik (Player.landMove)
+const TIMED = { roll: 'rollTime', rollUp: 'rollTime', rise: 'riseTime', stumble: 'stumbleTime' };
+const STUMBLE_STEPS = STUMBLE.contacts.slice(1).map((c) => c / STUMBLE.dur);
 const GAIT_ORDER = ['walk', 'jog', 'sprint'];
 
 const _m = new THREE.Matrix4();
@@ -49,7 +52,7 @@ export class Character {
         a.setLoop(THREE.LoopOnce, 1);
         a.clampWhenFinished = true;
       }
-      if (GAIT_ORDER.includes(name) || name === 'swing') a.setEffectiveTimeScale(0); // Phase wird von außen gesteuert
+      if (GAIT_ORDER.includes(name) || name === 'swing' || TIMED[name]) a.setEffectiveTimeScale(0); // Phase wird von außen gesteuert
       a.setEffectiveWeight(name === 'idle' ? 1 : 0);
       a.play();
       this.actions[name] = a;
@@ -299,6 +302,7 @@ export class Character {
       else if (e.type === 'pivot') this.trigger('pivot');
       else if (e.type === 'stop' && info.state === 'ground') this.trigger('stop');
       else if (e.type === 'land') {
+        if (info.move) continue; // Rolle oder Slide übernehmen das Aufkommen
         if (e.strength > 24) this.trigger('landHard');
         else if (e.strength > 7 && e.speed < 4) this.trigger('land');
       }
@@ -316,13 +320,20 @@ export class Character {
       if (cancel || t >= this.clips[s].duration - 0.07) this.oneShot = null;
     }
 
+    const M = info.state === 'ground' ? info.move : null;
+    if (M) this.oneShot = null;
+
     // Zielgewichte aller Clips (summieren sich zu 1)
     const T = {};
     const gait = this.gaitBlend(info.hspeed);
     const moveMix = smooth(0.05, 1.2, info.hspeed);
     if (this.oneShot) T[this.oneShot] = 1;
     else if (info.state === 'ground') {
-      if (info.hspeed > CONFIG.locomotion.sprintSpeed + 2) T.slide = 1;
+      if (M?.type === 'roll') {
+        // gleicher Anfang, zwei Enden: Taste gehalten → auf der Hüfte bleiben (Slide), sonst über das Knie hoch
+        T.roll = M.held ?? 1;
+        T.rollUp = 1 - T.roll;
+      } else if (M) T[M.type] = 1;
       else {
         T.idle = 1 - moveMix;
         for (const n of GAIT_ORDER) T[n] = moveMix * gait.w[n];
@@ -340,13 +351,21 @@ export class Character {
     let lead = 'idle', leadW = -1;
     for (const [n, w] of Object.entries(T)) if (w > leadW) { lead = n; leadW = w; }
     if (lead === 'idle' || GAIT_ORDER.includes(lead)) lead = 'loco';
+    if (lead === 'rollUp') lead = 'roll';
     // Die Gewichte springen dabei direkt auf die neue Pose; den weichen Weg dorthin übernimmt allein
     // die Überblendung (eine zusätzliche Kreuzblende würde am Anfang wieder einen Ruck erzeugen).
     const key = `${info.state}|${lead}`;
     let k = 1 - Math.exp(-dt / 0.13);
     if (key !== this.poseKey) {
       const fromShot = ONE_SHOTS.includes(this.poseKey.split('|')[1]);
-      this.inert.trigger(this.oneShot ? (this.oneShot === 'dash' || this.oneShot === 'jump' ? 0.18 : 0.24) : fromShot ? 0.36 : 0.32);
+      const prevLead = this.poseKey.split('|')[1];
+      let dur = this.oneShot ? (this.oneShot === 'dash' || this.oneShot === 'jump' ? 0.18 : 0.24) : fromShot ? 0.36 : 0.32;
+      // Rolle, Slide, Aufstehen und Stolpern sind so gebaut, dass jede Pose dort beginnt, wo die vorige endet
+      if (lead === 'roll') dur = 0.18;
+      else if (lead === 'slide') dur = prevLead === 'roll' ? 0.2 : 0.24;
+      else if (lead === 'rise' || lead === 'stumble') dur = 0.12;
+      else if (prevLead === 'rise' || prevLead === 'stumble') dur = 0.26;
+      this.inert.trigger(dur);
       this.poseKey = key;
       k = 1;
     }
@@ -358,6 +377,13 @@ export class Character {
     // Schwing-Pose folgt der Position im Bogen (0 Abschwung, 0.5 unten, 1 Aufschwung)
     if (info.swingPhase !== undefined) this.swingPhase += (info.swingPhase - this.swingPhase) * (1 - Math.exp(-6 * dt));
     this.actions.swing.time = clamp(this.swingPhase, 0, 0.999) * this.clips.swing.duration;
+    if (M && TIMED[M.type]) {
+      const u = clamp(M.t / (M.dur ?? CONFIG.landing[TIMED[M.type]]), 0, 0.999);
+      for (const n of M.type === 'roll' ? ['roll', 'rollUp'] : [M.type]) this.actions[n].time = u * this.clips[n].duration;
+      // hastige Schritte beim Stolpern hörbar machen
+      if (M.type === 'stumble') for (const s of STUMBLE_STEPS) if (this.moveU < s && u >= s) this.steps.push(0.75);
+      this.moveU = u;
+    } else this.moveU = 0;
 
     // Gang-Phase: alle Zyklen laufen synchron, Kadenz = Tempo / Schrittlänge (keine rutschenden Füße)
     const prev = this.phase;
@@ -367,7 +393,8 @@ export class Character {
       this.steps.push(0.3 + 0.35 * this.weights.jog + 0.7 * this.weights.sprint);
     }
     for (const n of GAIT_ORDER) this.actions[n].time = this.phase * GAITS[n].cycle;
-    if (this.weights.wallrun > 0.01) this.actions.wallrun.setEffectiveTimeScale(clamp(info.speed / 24, 0.8, 1.6));
+    // Schrittfrequenz an der Wand: waagrecht weite, schwebende Schritte; senkrecht wie ein Sprint, damit die Füße nicht rutschen
+    if (this.weights.wallrun > 0.01) this.actions.wallrun.setEffectiveTimeScale(clamp(info.speed / lerp(24, 9.5, info.wallUp ?? 0), 0.8, 1.8));
 
     // Der Mixer schreibt ein Gelenk nur, wenn sich sein Clip-Wert seit dem letzten Mal geändert hat.
     // Darum vorher die reine Clip-Pose wiederherstellen – sonst summieren sich die prozeduralen Ebenen

@@ -9,7 +9,6 @@ export const CONFIG = {
   player: {
     halfWidth: 0.33,
     halfHeight: 0.82,
-    slideDecel: 20,       // Abbremsen, wenn man schneller als Sprinttempo landet
     jumpSpeed: 8.5,
     airAccel: 8,
     airMaxSpeed: 14,
@@ -29,6 +28,26 @@ export const CONFIG = {
     pivotMinSpeed: 3.8,
     pivotTime: 0.46,
     pivotDecel: 28,
+  },
+  // Schnelles Aufkommen: Rolle → Slide (Richtungstaste gehalten) oder Rolle → Stolpern (keine Taste); am Seil Slide
+  landing: {
+    rollSpeed: 10.5,      // ab diesem Bodentempo (≈ 38 km/h, über dem Sprint) rollt man sich ab – nicht am Seil
+    rollTime: 0.64,       // Dauer der Rolle bei Lauftempo; schneller gerollt wird sie kürzer (rollDist)
+    rollTimeMin: 0.42,
+    rollDist: 6.5,        // ungefähre Strecke einer Rolle (m) – bestimmt bei hohem Tempo ihre Dauer
+    // Kettenglied statt Vollbremsung: man rollt mit dem Schwung ab, der Slide ist schnell und trägt rund 12 m weit,
+    // dann läuft man weiter; das Stolpern ist langsamer und bremst bis zum Stand (gut 9 m)
+    rollMax: 20,          // höchstes Tempo beim Abrollen (m/s)
+    rollKeep: 1.2,        // Abbremsen in der Rolle mit Richtungstaste (m/s²) – der Schwung geht in den Slide
+    rollBrake: 3,         // … ohne Richtungstaste (mindestens; bremst genau auf das Anfangstempo des Stolperns)
+    slideFriction: 4,     // Reibung im Slide (m/s²) – schnell, aber nach ≈ 12 m ausgebremst
+    slideDrag: 0.6,       // zusätzliche Reibung je m/s
+    ropeFriction: 2.6,    // Slide am Seil / ohne Rolle: geringe Reibung, das Seil zieht
+    ropeDrag: 0.04,
+    slideSteer: 1.1,      // Lenken im Slide (rad/s)
+    slideExit: 5.5,       // darunter steht man aus dem Slide auf (und läuft weiter)
+    riseTime: 0.34,       // Aufstehen aus dem Slide in den Lauf
+    stumbleTime: 1.45,    // Stolpern (Ausfallschritte) bis zum Stand – Tempoverlauf in animations.js (STUMBLE)
   },
   dash: {
     speed: 22,            // zusätzliche Geschwindigkeit in Blickrichtung
