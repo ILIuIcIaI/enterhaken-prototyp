@@ -38,7 +38,7 @@ export function mirror(pose) {
   return out;
 }
 
-const lerpPose = (a, b, t) => {
+export const lerpPose = (a, b, t) => {
   const out = {};
   for (const k of new Set([...Object.keys(a), ...Object.keys(b)])) {
     const va = a[k] ?? (Array.isArray(b[k]) ? [0, 0, 0] : 0);
@@ -122,7 +122,7 @@ export function buildClip(name, keys, baseY, loop = true) {
 
 // ------------------------------------------------------------------ Stand
 
-const IDLE_R = { // Gewicht auf dem rechten Bein, lockerer Kontrapost
+export const IDLE_R = { // Gewicht auf dem rechten Bein, lockerer Kontrapost
   hips: [0, 5, 4], spine: [3, -2, -2], chest: [-3, -3, -2], neck: [2, 2, 1], head: [-3, 7, 3],
   shoulderL: [0, 0, 2], shoulderR: [0, 0, -1],
   thighL: [9, -8, -6], shinL: [-16, 0, 0], footL: [8, 0, 0],
@@ -552,6 +552,144 @@ const TUCK = {
   upperArmL: [60, 0, -20], forearmL: [80, 0, 0], upperArmR: [60, 0, 20], forearmR: [80, 0, 0],
 };
 
+// ------------------------------------------------------------------ Grinden (Schiene, Brüstung, Kabel)
+// Seitlich auf der Linie wie beim Rail-Grind: Becken quer, linker Fuß vorn, Knie gebeugt, Oberkörper und Blick
+// zurück in Fahrtrichtung gedreht, Arme zur Balance seitlich offen (unter Schulterhöhe); zweite Pose wippt aus.
+const GRIND = {
+  hips: [0, -62, 0], spine: [-8, 26, 4], chest: [-6, 22, 0], neck: [4, 8, 0], head: [10, 8, 0],
+  thighL: [30, 0, -16], shinL: [-56, 0, 0], footL: [24, 0, 0],
+  thighR: [18, 0, 18], shinR: [-46, 0, 0], footR: [26, 0, 0],
+  upperArmL: [22, 0, -62], forearmL: [22, 0, 0], handL: [0, 0, -12],
+  upperArmR: [-12, 0, 58], forearmR: [26, 0, 0], handR: [0, 0, 12],
+  bob: -0.16,
+};
+const GRIND_B = { ...GRIND, spine: [-10, 24, -4], chest: [-8, 20, -3], upperArmL: [16, 0, -68], upperArmR: [-8, 0, 64], shinL: [-62, 0, 0], shinR: [-52, 0, 0], bob: -0.19 };
+
+// ------------------------------------------------------------------ Surfen auf dem Wasser
+// Nach Marvel's Spider-Man 2 (tiefe Hocke, Füße nebeneinander, Oberkörper ≈ 30° vor, Arme weit offen, Blick nach vorn),
+// zugespitzt: breiter Ausfallschritt mit dem linken Fuß vorn, das hintere Knie tief, Becken leicht eingedreht und die
+// Schultern dagegen – die Arme fliegen seitlich und nach hinten (unter Schulterhöhe). Zweite Pose federt tiefer.
+// In Kurven legt sich der ganze Körper hinein (main.js); SURF_L/SURF_R blenden dazu die Arme: die innere Hand
+// greift zum Wasser, die äußere öffnet weit.
+const SURF = {
+  hips: [0, -14, 0], spine: [-16, 8, 0], chest: [-14, 10, 0], neck: [10, -4, 0], head: [22, -6, 0],
+  shoulderL: [0, 0, -4], shoulderR: [0, 0, 4],
+  thighL: [72, 0, -12], shinL: [-110, 0, 0], footL: [38, 0, 0],
+  thighR: [30, 0, 14], shinR: [-108, 0, 0], footR: [30, 0, 0],
+  upperArmL: [-8, 0, -60], forearmL: [20, 0, 0], handL: [0, 0, -14],
+  upperArmR: [-26, 0, 54], forearmR: [28, 0, 0], handR: [0, 0, 12],
+  bob: -0.34,
+};
+const SURF_B = {
+  ...SURF, spine: [-18, 6, 2], chest: [-16, 8, 2], head: [24, -4, -2],
+  thighL: [76, 0, -12], shinL: [-118, 0, 0], footL: [42, 0, 0], thighR: [34, 0, 14], shinR: [-116, 0, 0], footR: [32, 0, 0],
+  upperArmL: [-4, 0, -64], upperArmR: [-30, 0, 58], bob: -0.38,
+};
+// Linkskurve: Kopf bleibt waagrecht (gegen die Schräglage), linke Hand tief zum Wasser, rechter Arm weit hinaus
+// (nicht höher als waagrecht, auch bei voller Schräglage); das innere Knie federt tiefer. Die Fußstellung bleibt
+// in beiden Kurven dieselbe (links vorn) – darum keine gespiegelte Pose.
+const SURF_L = {
+  ...SURF, spine: [-18, 6, 6], chest: [-14, 8, 6], neck: [8, -4, -8], head: [20, -10, -14],
+  upperArmL: [24, 0, -26], forearmL: [12, 0, 0], handL: [-20, 0, -10],
+  upperArmR: [-20, 0, 56], forearmR: [18, 0, 0], handR: [0, 0, 18],
+  thighL: [74, 0, -16], shinL: [-118, 0, 0], footL: [40, 0, 0], thighR: [32, 0, 10], shinR: [-104, 0, 0], bob: -0.38,
+};
+const SURF_R = {
+  ...SURF, spine: [-18, 10, -6], chest: [-14, 12, -6], neck: [8, -4, 8], head: [20, -2, 14],
+  upperArmR: [24, 0, 26], forearmR: [12, 0, 0], handR: [-20, 0, 10],
+  upperArmL: [-14, 0, -58], forearmL: [16, 0, 0], handL: [0, 0, -18],
+  thighR: [32, 0, 18], shinR: [-116, 0, 0], footR: [32, 0, 0], thighL: [70, 0, -10], shinL: [-104, 0, 0], bob: -0.38,
+};
+
+// ------------------------------------------------------------------ Kante: hängen, hangeln, hochziehen
+// Hängen: Gesicht zur Wand, beide Hände oben auf der Kante, Arme fast gestreckt, Schultern hochgezogen, die Beine
+// hängen locker (Körpermitte 1,2 m unter der Kante, siehe CONFIG.ledge.hangDrop).
+const HANG = {
+  spine: [4, 0, 0], chest: [8, 0, 0], neck: [6, 0, 0], head: [16, 0, 0],
+  shoulderL: [0, 0, 10], shoulderR: [0, 0, -10],
+  upperArmL: [160, 0, -14], forearmL: [14, 0, 0], handL: [20, 0, 0],
+  upperArmR: [160, 0, 14], forearmR: [14, 0, 0], handR: [20, 0, 0],
+  thighL: [8, 0, -4], shinL: [-22, 0, 0], footL: [-30, 0, 0],
+  thighR: [18, 0, 4], shinR: [-36, 0, 0], footR: [-26, 0, 0],
+};
+const HANG_B = { ...HANG, thighL: [14, 0, -4], shinL: [-30, 0, 0], thighR: [10, 0, 4], shinR: [-24, 0, 0], head: [12, 3, 0], chest: [6, 0, 0] };
+// Hangeln: eine Hand greift seitlich nach, die andere hält, das Becken pendelt mit
+const SHIMMY_A = {
+  ...HANG, hips: [0, 0, -4], chest: [8, 0, 4], head: [14, 8, 0],
+  upperArmL: [152, 0, -30], forearmL: [22, 0, 0], upperArmR: [164, 0, 6], forearmR: [10, 0, 0],
+  thighL: [14, 0, -10], thighR: [12, 0, 2],
+};
+const SHIMMY_B = mirror(SHIMMY_A);
+// Hochziehen (0,78 s): Klimmzug bis zur Brust, Hände drücken aufs Dach, rechtes Knie auf die Kante, aufrichten
+const CLIMB_PULL = {
+  spine: [-6, 0, 0], chest: [-4, 0, 0], neck: [2, 0, 0], head: [10, 0, 0],
+  upperArmL: [118, 0, -32], forearmL: [104, 0, 0], handL: [24, 0, 0],
+  upperArmR: [118, 0, 32], forearmR: [104, 0, 0], handR: [24, 0, 0],
+  thighL: [32, 0, -4], shinL: [-62, 0, 0], footL: [-22, 0, 0],
+  thighR: [46, 0, 4], shinR: [-84, 0, 0], footR: [-22, 0, 0],
+};
+const CLIMB_PRESS = {
+  spine: [-30, 0, 0], chest: [-26, 0, 0], neck: [12, 0, 0], head: [20, 0, 0],
+  upperArmL: [22, 0, -28], forearmL: [28, 0, 0], handL: [-50, 0, 0],
+  upperArmR: [26, 0, 28], forearmR: [32, 0, 0], handR: [-50, 0, 0],
+  thighR: [112, 0, 8], shinR: [-132, 0, 0], footR: [20, 0, 0],
+  thighL: [8, 0, -6], shinL: [-42, 0, 0], footL: [-30, 0, 0],
+};
+const CLIMB_STEP = {
+  spine: [-18, 0, 0], chest: [-12, 0, 0], neck: [4, 0, 0], head: [8, 0, 0],
+  upperArmL: [-8, 0, -18], forearmL: [30, 0, 0], upperArmR: [30, 0, 14], forearmR: [36, 0, 0],
+  thighR: [70, 0, 6], shinR: [-80, 0, 0], footR: [10, 0, 0],
+  thighL: [-20, 0, -6], shinL: [-72, 0, 0], footL: [-30, 0, 0],
+};
+// ------------------------------------------------------------------ Auf der Dachkante sitzen
+// Po auf der Kante, Oberschenkel waagrecht hinaus, die Unterschenkel hängen über der Kante und schlenkern
+// gegenläufig, Hände stützen neben der Hüfte, Oberkörper leicht zurück – entspannt.
+const SIT = {
+  hips: [0, 0, 0], spine: [-4, 0, 0], chest: [6, 0, 0], neck: [-4, 0, 0], head: [-8, 0, 0],
+  upperArmL: [-24, 0, -24], forearmL: [8, 0, 0], handL: [-62, 0, 0],
+  upperArmR: [-24, 0, 24], forearmR: [8, 0, 0], handR: [-62, 0, 0],
+  thighL: [88, 0, -6], shinL: [-96, 0, 0], footL: [-10, 0, 0],
+  thighR: [84, 0, 8], shinR: [-80, 0, 0], footR: [-14, 0, 0],
+  bob: -0.86,
+};
+const SIT_B = { ...SIT, shinL: [-80, 0, 0], shinR: [-98, 0, 0], head: [-6, 6, 0], chest: [7, 2, 0] };
+// in die Hocke an der Kante, Hände greifen vor zur Kante
+const SIT_CROUCH = {
+  spine: [-26, 0, 0], chest: [-18, 0, 0], neck: [10, 0, 0], head: [12, 0, 0],
+  upperArmL: [44, 0, -16], forearmL: [22, 0, 0], handL: [-20, 0, 0],
+  upperArmR: [44, 0, 16], forearmR: [22, 0, 0], handR: [-20, 0, 0],
+  thighL: [84, 0, -8], shinL: [-118, 0, 0], footL: [30, 0, 0],
+  thighR: [80, 0, 8], shinR: [-114, 0, 0], footR: [28, 0, 0],
+  bob: -0.42,
+};
+// Hände neben der Hüfte auf der Kante, das Becken senkt sich, die Beine schwingen hinaus über die Kante
+const SIT_LOWER = {
+  spine: [-14, 0, 0], chest: [-4, 0, 0], neck: [2, 0, 0], head: [0, 0, 0],
+  upperArmL: [-12, 0, -26], forearmL: [10, 0, 0], handL: [-55, 0, 0],
+  upperArmR: [-12, 0, 26], forearmR: [10, 0, 0], handR: [-55, 0, 0],
+  thighL: [92, 0, -6], shinL: [-70, 0, 0], footL: [-4, 0, 0],
+  thighR: [90, 0, 8], shinR: [-62, 0, 0], footR: [-6, 0, 0],
+  bob: -0.78,
+};
+// Aufstehen: Beine zurück aufs Dach, Knie an die Brust, Hände drücken hoch
+const SIT_LIFT = {
+  spine: [-22, 0, 0], chest: [-16, 0, 0], neck: [6, 0, 0], head: [8, 0, 0],
+  upperArmL: [-30, 0, -28], forearmL: [12, 0, 0], handL: [-60, 0, 0],
+  upperArmR: [-30, 0, 28], forearmR: [12, 0, 0], handR: [-60, 0, 0],
+  thighL: [108, 0, -8], shinL: [-138, 0, 0], footL: [16, 0, 0],
+  thighR: [104, 0, 8], shinR: [-134, 0, 0], footR: [16, 0, 0],
+  bob: -0.7,
+};
+// Abspringen: Hände stoßen hinten ab, die Beine schwingen nach vorn hinaus
+const HOP_PUSH = {
+  spine: [-10, 0, 0], chest: [-6, 0, 0], neck: [2, 0, 0], head: [6, 0, 0],
+  upperArmL: [-50, 0, -20], forearmL: [4, 0, 0], handL: [-70, 0, 0],
+  upperArmR: [-50, 0, 20], forearmR: [4, 0, 0], handR: [-70, 0, 0],
+  thighL: [74, 0, -6], shinL: [-34, 0, 0], footL: [-16, 0, 0],
+  thighR: [70, 0, 8], shinR: [-30, 0, 0], footR: [-16, 0, 0],
+  bob: -0.66,
+};
+
 const wallLean = (p) => ({ ...p, spine: [-14, p.spine?.[1] ?? 0, 0], chest: [-10, p.chest?.[1] ?? 0, 0], bob: (p.bob ?? 0) * 0.5 });
 const cycle4 = (A, B, C, D, dur) => [
   [0, A], [dur * 0.125, B], [dur * 0.25, C], [dur * 0.375, D],
@@ -579,6 +717,10 @@ export function createClips(baseY) {
     land: buildClip('land', [[0, CROUCH], [0.12, { ...CROUCH, bob: -0.22 }], [0.45, IDLE_R]], baseY, false),
     landHard: buildClip('landHard', [[0, HERO_LAND], [0.5, { ...HERO_LAND, bob: -0.4 }], [0.9, IDLE_R]], baseY, false),
     slide: buildClip('slide', [[0, SLIDE], [0.6, SLIDE_B], [1.2, SLIDE]], baseY),
+    grind: buildClip('grind', [[0, GRIND], [0.45, GRIND_B], [0.9, GRIND]], baseY),
+    surf: buildClip('surf', [[0, SURF], [0.55, SURF_B], [1.1, SURF]], baseY),
+    surfL: buildClip('surfL', [[0, SURF_L], [0.55, { ...SURF_L, bob: -0.41, shinL: [-122, 0, 0], footL: [44, 0, 0] }], [1.1, SURF_L]], baseY),
+    surfR: buildClip('surfR', [[0, SURF_R], [0.55, { ...SURF_R, bob: -0.41, shinR: [-122, 0, 0], footR: [44, 0, 0] }], [1.1, SURF_R]], baseY),
     // zeitgesteuert (Character.update setzt die Zeit aus dem Fortschritt der Bewegung)
     roll: buildClip('roll', [
       [0, ROLL_TOUCH],
@@ -610,5 +752,13 @@ export function createClips(baseY) {
       [0.4, { ...lerpPose(TUCK, FALL_A, 0.5), flip: [-340, 0, 0] }],
       [0.52, { ...FALL_A, flip: [-360, 0, 0] }],
     ], baseY, false),
+    // Kante (climb, sitDown, standUp, hop zeitgesteuert über Player.perch; shimmy über die gehangelte Strecke)
+    hang: buildClip('hang', [[0, HANG], [1.4, HANG_B], [2.8, HANG]], baseY),
+    shimmy: buildClip('shimmy', [[0, SHIMMY_A], [0.5, SHIMMY_B], [1.0, SHIMMY_A]], baseY),
+    climb: buildClip('climb', [[0, HANG], [0.2, CLIMB_PULL], [0.42, CLIMB_PRESS], [0.6, CLIMB_STEP], [0.78, IDLE_R]], baseY, false),
+    sitDown: buildClip('sitDown', [[0, IDLE_R], [0.32, SIT_CROUCH], [0.66, SIT_LOWER], [1.0, SIT]], baseY, false),
+    sit: buildClip('sit', [[0, SIT], [1.3, SIT_B], [2.6, SIT]], baseY),
+    standUp: buildClip('standUp', [[0, SIT], [0.26, SIT_LIFT], [0.52, SIT_CROUCH], [0.8, IDLE_R]], baseY, false),
+    hop: buildClip('hop', [[0, SIT], [0.16, HOP_PUSH], [0.3, AIR_UP]], baseY, false),
   };
 }

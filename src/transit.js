@@ -4,6 +4,10 @@ import { Polyline } from './geom2d.js';
 import { toonMaterial } from './toon.js';
 import { mulberry32 } from './rng.js';
 import { TRACK_Y } from './citygen.js';
+import { Mover, colored, box } from './mover.js';
+import { Ships, RoofCranes, HarborTraffic } from './harbor.js';
+import { Amusement } from './amusement.js';
+import { Airship, Balloons, WindTurbines } from './aerial.js';
 
 // Bewegte Ziele für den Enterhaken: Hochbahn auf fester Strecke (mit Halt in zwei Bahnhöfen) und
 // Flugzeuge auf weiten, ruhigen Schleifen über der Insel. Alle Bewegungen sind reine Funktionen der Zeit –
@@ -15,61 +19,6 @@ const _d = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
-
-function colored(geo, hex) {
-  const g = geo.toNonIndexed(), c = new THREE.Color(hex), n = g.attributes.position.count, a = new Float32Array(n * 3);
-  for (let i = 0; i < n; i++) { a[i * 3] = c.r; a[i * 3 + 1] = c.g; a[i * 3 + 2] = c.b; }
-  g.setAttribute('color', new THREE.BufferAttribute(a, 3));
-  return g;
-}
-const box = (w, h, d, x, y, z) => new THREE.BoxGeometry(w, h, d).translate(x, y, z);
-
-// Ein bewegtes Objekt: Pose (Position + Drehung) zur Zeit t, Trefferboxen im lokalen System
-class Mover {
-  constructor(kind, boxes) {
-    this.kind = kind;
-    this.boxes = boxes; // [{ min: Vector3, max: Vector3 }] lokal
-    this.pos = new THREE.Vector3();
-    this.quat = new THREE.Quaternion();
-    this.vel = new THREE.Vector3();
-  }
-
-  worldPoint(local, out) {
-    return out.copy(local).applyQuaternion(this.quat).add(this.pos);
-  }
-
-  // Strahl im lokalen System gegen alle Boxen; Ergebnis: Abstand, lokaler Treffer und Normale
-  raycast(origin, dir, maxDist, hit) {
-    _q.copy(this.quat).invert();
-    _o.copy(origin).sub(this.pos).applyQuaternion(_q);
-    _d.copy(dir).applyQuaternion(_q);
-    let found = false;
-    for (const b of this.boxes) {
-      let tmin = 0, tmax = maxDist, axis = -1, sign = 1;
-      for (let k = 0; k < 3; k++) {
-        const o = _o.getComponent(k), d = _d.getComponent(k);
-        const lo = b.min.getComponent(k), hi = b.max.getComponent(k);
-        if (Math.abs(d) < 1e-9) { if (o < lo || o > hi) { tmin = Infinity; break; } continue; }
-        let t1 = (lo - o) / d, t2 = (hi - o) / d, s = -1;
-        if (t1 > t2) { const t = t1; t1 = t2; t2 = t; s = 1; }
-        if (t1 > tmin) { tmin = t1; axis = k; sign = s; }
-        if (t2 < tmax) tmax = t2;
-        if (tmin > tmax) { tmin = Infinity; break; }
-      }
-      if (tmin === Infinity || axis < 0 || tmin >= maxDist) continue;
-      maxDist = tmin;
-      found = true;
-      hit.dist = tmin;
-      hit.local.copy(_d).multiplyScalar(tmin).add(_o);
-      hit.normal.set(0, 0, 0).setComponent(axis, sign).applyQuaternion(this.quat);
-    }
-    if (found) {
-      hit.mover = this;
-      this.worldPoint(hit.local, hit.point);
-    }
-    return found;
-  }
-}
 
 // ------------------------------------------------------------------ Hochbahn
 class Train {
@@ -279,28 +228,52 @@ export class Transit {
   }
 
   build(city) {
-    if (this.train) { this.scene.remove(this.train.group, this.planes.group); }
+    if (this.train) { this.scene.remove(this.train.group, this.planes.group, this.ships.group, this.cranes.group, this.harbor.group, this.amusement.group, this.airship.group, this.balloons.group, this.turbines.group); }
     this.train = new Train(this.scene, city);
     this.planes = new Planes(this.scene, city, 3);
-    this.movers = [...this.train.movers, ...this.planes.movers];
+    this.ships = new Ships(this.scene, city);
+    this.cranes = new RoofCranes(this.scene, city);
+    this.harbor = new HarborTraffic(this.scene, city);
+    this.amusement = new Amusement(this.scene, city);
+    this.airship = new Airship(this.scene, this.planes);
+    this.balloons = new Balloons(this.scene, city);
+    this.turbines = new WindTurbines(this.scene, city);
+    this.movers = [
+      ...this.train.movers, ...this.planes.movers, ...this.ships.movers, ...this.cranes.movers, ...this.harbor.movers,
+      ...this.amusement.movers, ...this.airship.movers, ...this.balloons.movers, ...this.turbines.movers,
+    ];
     this.update(0, 0);
   }
 
   update(time, dt) {
     this.train.update(time, dt);
     this.planes.update(time, dt);
+    this.ships.update(time, dt);
+    this.cranes.update(time);
+    this.harbor.update(time, dt);
+    this.amusement.update(time, dt);
+    this.airship.update(time, dt);
+    this.balloons.update(time, dt);
+    this.turbines.update(time);
   }
 
   render(time) {
     this.train.render();
     this.planes.render(time);
+    this.ships.render();
+    this.cranes.render();
+    this.harbor.render();
+    this.amusement.render(time);
+    this.airship.render(time);
+    this.balloons.render(time);
+    this.turbines.render();
   }
 
   raycast(origin, dir, maxDist) {
     let best = maxDist, found = null;
     const h = this.hit;
     for (const m of this.movers) {
-      if (m.pos.distanceToSquared(origin) > (best + 30) ** 2) continue;
+      if (m.pos.distanceToSquared(origin) > (best + (m.radius ?? 30)) ** 2) continue; // lange Objekte: Schiffe, Luftschiff
       const tmp = this._tmp ?? (this._tmp = { dist: 0, point: new THREE.Vector3(), normal: new THREE.Vector3(), local: new THREE.Vector3(), mover: null });
       if (m.raycast(origin, dir, best, tmp) && tmp.dist < best) {
         best = tmp.dist;

@@ -226,12 +226,13 @@ export function buildBelle(K) {
         return cBlack;
       }
       const a = J.arms[best === 'sl' ? 0 : 1];
-      const along = (x - a.S[0]) * a.d[0] + (y - a.S[1]) * a.d[1];
-      const out = nx * a.s;
+      const px = x - a.S[0], py = y - a.S[1], along = px * a.d[0] + py * a.d[1];
+      // Außenseite des Ärmels aus der Lage, nicht aus der Normalen: die Stofffalten würden die Kante sonst zerreißen
+      const out = px * a.s * Math.cos(AP) + py * Math.sin(AP);
       if (along > 0.405) return cBand;
       if (along > 0.392) return cOrange;
-      if (along > 0.17 && along < 0.31 && out > 0.05) return cOrange;
-      if (along > 0.155 && along <= 0.17 && out > 0.05) return cTrim;
+      if (along > 0.17 && along < 0.31 && out > -0.012) return cOrange;
+      if (along > 0.155 && along <= 0.17 && out > -0.012) return cTrim;
       return cBlack;
     });
     const armBones = J.arms.map((a) => (a.s < 0 ? side.L : side.R));

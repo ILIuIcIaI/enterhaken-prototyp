@@ -28,6 +28,10 @@
       <div id="aimDist"></div>
     </div>
     <div id="stateWrap"><span id="state" class="air">LUFT</span><span id="slowmo" class="hidden">ZEITLUPE</span></div>
+    <div id="flowWrap" class="t0">
+      <div class="label">FLOW <span id="flowTier"></span></div>
+      <div id="flowBar"><div id="flowFill"></div><i style="left:33%"></i><i style="left:66%"></i></div>
+    </div>
     <div id="stats">
       <div class="speed"><span id="speed">0</span><small>km/h</small></div>
       <div id="alt">0 m Höhe</div>
@@ -36,7 +40,8 @@
       <div class="label">GAS</div>
       <div id="gasBar"><div id="gasFill"></div></div>
     </div>
-    <div id="hint">H Steuerung · G Tuning · R Reset</div>
+    <div id="hint">Esc Menü · F Foto · H Steuerung · G Tuning · R Reset</div>
+    <div id="fps" class="hidden"></div>
   </div>
 
   <div id="help" class="hidden">
@@ -49,6 +54,11 @@
       <dt>Strg (antippen)</dt><dd>Gleiter an/aus – Blick lenkt, W Sturzflug, S abfangen</dd>
       <dt>W A S D</dt><dd>Gehen · Schwung steuern · Wallrun-Richtung</dd>
       <dt>S (Wallrun)</dt><dd>Von der Wand lösen</dd>
+      <dt>An der Kante</dt><dd>A D hangeln · W hochziehen · S loslassen · Strg hinsetzen (auch auf Bänken)</dd>
+      <dt>Schiene, Kabel</dt><dd>Darauf landen = grinden · Leertaste abspringen</dd>
+      <dt>Shift (Wasser)</dt><dd>Übers Wasser sprinten · schnell aufkommen = surfen</dd>
+      <dt>Esc</dt><dd>Pause: Figur, Einstellungen</dd>
+      <dt>F</dt><dd>Fotomodus</dd>
       <dt>R</dt><dd>Zurück zum Start</dd>
       <dt>T</dt><dd>Zeitlupe</dd>
       <dt>C</dt><dd>Schulter wechseln</dd>
@@ -57,10 +67,22 @@
     </dl>
   </div>
 
+  <div id="photoPanel" class="hidden">
+    <div class="ph-head">FOTOMODUS <span id="photoLook">Standard</span></div>
+    <div class="ph-keys">WASD fliegen · Maus schauen · Leertaste / Strg hoch / runter · Shift schneller · Mausrad zoomen · Q / E neigen<br>1–5 Look · H Figur aus/an · Enter Foto · Tab Leiste · F zurück</div>
+    <div id="photoNote" class="ph-note"></div>
+  </div>
+  <div id="photoFlash"></div>
+
   <div id="overlay">
     <div class="panel">
       <h1>ENTERHAKEN</h1>
       <p class="sub">Gameplay-Prototyp · Schwingen &amp; Wallrun</p>
+      <nav class="tabs" aria-label="Menü">
+        <button type="button" class="tab" data-tab="controls">Steuerung</button>
+        <button type="button" class="tab" data-tab="select">Figur</button>
+        <button type="button" class="tab" data-tab="settings">Einstellungen</button>
+      </nav>
       <section class="page page-controls">
         <div class="cols">
           <dl>
@@ -68,13 +90,19 @@
             <dt>Linke / rechte Maustaste</dt><dd>Haken abschießen, halten = eingehakt bleiben</dd>
             <dt>Leertaste halten</dt><dd>Am Seil: Winde zieht dich zum Anker</dd>
             <dt>Shift</dt><dd>Am Boden sprinten · in der Luft antippen = Dash, halten = Gas-Schub</dd>
-            <dt>Strg antippen</dt><dd>Gleiter in der Luft an/aus – Blick lenkt, W Sturzflug, S abfangen</dd>
+            <dt>Strg antippen</dt><dd>Gleiter an/aus – Blick lenkt, W Sturzflug, S abfangen · an einer Kante oder Bank: hinsetzen</dd>
+            <dt>Dachkante im Fallen</dt><dd>Greifen · A/D hangeln · W hoch · S los</dd>
+            <dt>Schiene, Kabel</dt><dd>Darauf landen = grinden · Leertaste: abspringen</dd>
           </dl>
           <dl>
             <dt>W A S D</dt><dd>Gehen / Schwung pumpen</dd>
             <dt>Gegen eine Wand prallen</dt><dd>Automatischer Wallrun – W + Blick lenkt, hoch schauen = hochlaufen</dd>
             <dt>Leertaste im Wallrun</dt><dd>Wandsprung</dd>
+            <dt>Wasser</dt><dd>Shift + Schwung = sprinten · schneller = surfen</dd>
+            <dt>Lüfter auf Dächern</dt><dd>Schleudern hoch, ihr Aufwind trägt den Gleiter</dd>
             <dt>R · T · C · G · H · P</dt><dd>Reset · Zeitlupe · Schulter · Tuning · Hilfe · Screenshot</dd>
+            <dt>Esc</dt><dd>Pause – Figur wechseln, Einstellungen</dd>
+            <dt>F</dt><dd>Fotomodus – Zeit steht, freie Kamera, Looks, Foto</dd>
           </dl>
         </div>
         <div class="actions">
@@ -88,7 +116,16 @@
         <div class="actions">
           <button type="button" id="toControls" class="btn">‹ Steuerung</button>
           <span id="pick" class="pick"></span>
-          <button type="button" id="play" class="btn primary"><span class="start">Los!</span><span class="resume">Weiter spielen</span></button>
+          <button type="button" id="play" class="btn primary play"><span class="start">Los!</span><span class="resume">Weiter spielen</span></button>
+        </div>
+      </section>
+      <section class="page page-settings">
+        <div id="settings" class="settings"></div>
+        <div class="actions">
+          <button type="button" id="resetSettings" class="btn">Zurücksetzen</button>
+          <span class="note">Wird in diesem Browser gespeichert</span>
+          <button type="button" id="photoBtn" class="btn">Fotomodus</button>
+          <button type="button" class="btn primary play"><span class="start">Los!</span><span class="resume">Weiter spielen</span></button>
         </div>
       </section>
     </div>

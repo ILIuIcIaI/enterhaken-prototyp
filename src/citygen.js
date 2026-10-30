@@ -28,13 +28,39 @@ export function generateLayout(city, rand) {
       if (corner > -50) continue;
       const cx = x0 + B / 2, cz = z0 + B / 2;
       const dn = Math.hypot(cx, cz) / city.coastR(cx, cz);
-      let zone = dn < 0.28 ? 'downtown' : dn < 0.5 ? 'midtown' : 'residential';
+      let zone = dn < 0.25 ? 'downtown' : dn < 0.47 ? 'midtown' : 'residential'; // außen viel Platz (Wahrzeichen)
       if (corner > -85) zone = 'waterfront';
       blocks.set(i * N + j, { i, j, x0, z0, x1: x0 + B, z1: z0 + B, cx, cz, zone, super: null, built: false });
     }
   }
   const block = (i, j) => (i < 0 || j < 0 || i >= N || j >= N ? null : blocks.get(i * N + j) ?? null);
   city.blockList = [...blocks.values()];
+
+  // ---------------------------------------------------------------- Kanal durch die Innenstadt
+  // Die Rasterstraße (Nord–Süd) nächst der Inselmitte wird auf ihrem längsten Stück zwischen Innenstadtblöcken zum Kanal
+  // (höchstens fünf Blöcke): Wasser 2,8 m unter der Straße, Kaimauern, schmale Uferwege; die Querstraßen führen auf
+  // flachen Brücken darüber (darunter kann man hindurchsurfen). Nichts ragt in die Höhe – freie Bahn zum Schwingen.
+  city.canal = null;
+  {
+    const downtown = (i, j) => block(i, j)?.zone === 'downtown';
+    let best = null;
+    for (let li = 1; li < N; li++) {
+      for (let j0 = 0; j0 < N; j0++) {
+        let j1 = j0;
+        while (j1 < N && j1 - j0 < 5 && downtown(li - 1, j1) && downtown(li, j1)) j1++;
+        if (j1 - j0 < 3) continue;
+        const score = j1 - j0 - Math.abs(line(li)) / 60 - Math.abs((line(j0) + line(j1)) / 2) / 80;
+        if (!best || score > best.score) best = { li, j0, j1, score };
+      }
+    }
+    if (best) {
+      const { li, j0, j1 } = best, bridges = [];
+      for (let j = j0 + 1; j < j1; j++) bridges.push(line(j));
+      city.canal = { li, j0, j1, x: line(li), z0: line(j0) + S / 2, z1: line(j1) - S / 2, bridges, half: S / 2, hw: 5.5, wall: 0.5, level: -2.8, bottom: -5 };
+      city.terrain.canal = city.canal;
+      city.addCanal(city.canal);
+    }
+  }
 
   // ---------------------------------------------------------------- Ringstraße und Bahntrasse
   const bpts = [];
@@ -45,6 +71,8 @@ export function generateLayout(city, rand) {
   }
   const blvd = (city.boulevard = new Polyline(bpts, true));
   const track = (city.track = makeTrack(city, rand));
+  city.stations = [0.2 * track.length, 0.7 * track.length].map((s) => ({ s, len: 56 }));
+  city.neonTube = pickTubeSection(city);
 
   // ---------------------------------------------------------------- Parks
   const parks = (city.parks = []);
@@ -86,6 +114,29 @@ export function generateLayout(city, rand) {
   const sbs = (city.superblocks = []);
   const splitsV = new Map(), splitsH = new Map();
   const pushSplit = (m, k, v) => (m.get(k) ?? m.set(k, []).get(k)).push(v);
+  // Stadion: ein 2×2-Feld von Blöcken in den äußeren Wohnvierteln, ohne innere Straßen (city.js: addStadium) – weit weg
+  // von Bahn, Parks und Ringstraße
+  city.stadium = null;
+  {
+    let best = null;
+    for (let i = 0; i + 1 < N; i++) {
+      for (let j = 0; j + 1 < N; j++) {
+        const bl = [block(i, j), block(i + 1, j), block(i, j + 1), block(i + 1, j + 1)];
+        if (bl.some((b) => !b || b.zone !== 'residential')) continue;
+        const X0 = bx(i), Z0 = bx(j), X1 = bx(i + 1) + B, Z1 = bx(j + 1) + B, cx = (X0 + X1) / 2, cz = (Z0 + Z1) / 2;
+        if ([[X0, Z0], [X1, Z0], [X0, Z1], [X1, Z1], [cx, cz]].some(([x, z]) => parkRho(x, z) < 1.15 || coast(x, z) > -70)) continue;
+        if (track.near(cx, cz, 120) && track.dist(cx, cz) < 80) continue;
+        const score = Math.abs(Math.hypot(cx, cz) / city.coastR(cx, cz) - 0.7);
+        if (!best || score < best.score) best = { X0, Z0, X1, Z1, i, j, bl, score };
+      }
+    }
+    if (best) {
+      const sb = { i: best.i, j: best.j, X0: best.X0, Z0: best.Z0, X1: best.X1, Z1: best.Z1, W: best.X1 - best.X0, curves: [], houses: [], stadium: true };
+      best.bl.forEach((b) => (b.super = sb));
+      sbs.push(sb);
+      city.stadium = sb;
+    }
+  }
   // Kandidaten in zufälliger Reihenfolge, gierig belegt (dichter als ein festes 2×2-Raster)
   const cand = [];
   for (let i = 0; i + 1 < N; i++) for (let j = 0; j + 1 < N; j++) cand.push([i, j, rand()]);
@@ -124,6 +175,8 @@ export function generateLayout(city, rand) {
     const b = vertical ? block(li, k) : block(k, li);
     if (!a && !b) return;
     if (a && b && a.super && a.super === b.super) return; // Innenkreuz eines Superblocks
+    const cn = city.canal;
+    if (cn && vertical && li === cn.li && k >= cn.j0 && k < cn.j1) return; // dort fließt der Kanal
     const c = line(li), s0 = line(k), s1 = line(k + 1);
     const P0 = vertical ? [c, s0] : [s0, c], P1 = vertical ? [c, s1] : [s1, c];
     if (!land(...P0) || !land(...P1)) return;
@@ -190,17 +243,58 @@ export function generateLayout(city, rand) {
 
   // ---------------------------------------------------------------- Bebauung der Rasterblöcke
   const trackDist = (x, z) => (track.near(x, z, 40) ? track.dist(x, z) : 99);
+  // breiter Freiraum um die Neon-Röhre (ihre Wände stehen weiter außen als der übliche Abstand zur Bahn)
+  const tube = city.neonTube, tq = { s: 0 };
+  const inTube = (x, z) => {
+    if (Math.hypot(x - tube.cx, z - tube.cz) > (tube.s1 - tube.s0) / 2 + 40 || track.dist(x, z, tq) > tube.hw + 3) return false;
+    const L = track.length, ds = Math.abs((((tq.s - (tube.s0 + tube.s1) / 2) % L) + L * 1.5) % L - L / 2);
+    return ds < (tube.s1 - tube.s0) / 2 + 4;
+  };
   const lotOK = (lot) => {
     const pts = [[lot.x0, lot.z0], [lot.x1, lot.z0], [lot.x0, lot.z1], [lot.x1, lot.z1], [(lot.x0 + lot.x1) / 2, (lot.z0 + lot.z1) / 2],
       [(lot.x0 + lot.x1) / 2, lot.z0], [(lot.x0 + lot.x1) / 2, lot.z1], [lot.x0, (lot.z0 + lot.z1) / 2], [lot.x1, (lot.z0 + lot.z1) / 2]];
     for (const [x, z] of pts) {
       if (parkRho(x, z) < 1.04 || trackDist(x, z) < TRACK_CLEAR || coast(x, z) > BOULEVARD_D - BLVD_W / 2 - 2) return false;
     }
+    for (let u = 0; u <= 4; u++) for (let v = 0; v <= 4; v++) if (inTube(lot.x0 + ((lot.x1 - lot.x0) * u) / 4, lot.z0 + ((lot.z1 - lot.z0) * v) / 4)) return false;
     return true;
   };
   city.plazas = [];
+  // Mega-Tower: der Innenstadtblock, der der Inselmitte am nächsten liegt (frei von Park und Bahn)
+  let mega = null;
   for (const b of blocks.values()) {
-    if (b.super) continue;
+    if (b.zone !== 'downtown' || b.super || parkRho(b.cx, b.cz) < 1.1 || !lotOK(b)) continue;
+    if (!mega || Math.hypot(b.cx, b.cz) < Math.hypot(mega.cx, mega.cz)) mega = b;
+  }
+  if (mega) {
+    city.addMegaTower(mega);
+    mega.built = mega.mega = true;
+  }
+  // Rohbau-Wolkenkratzer mit Turmdrehkränen: ein Wohnblock knapp außerhalb der Mittelstadt (ringsum niedrig)
+  let site = null, siteErr = Infinity;
+  for (const b of blocks.values()) {
+    if (b.zone !== 'residential' || b.super || b.mega || parkRho(b.cx, b.cz) < 1.1 || !lotOK(b)) continue;
+    const dn = Math.hypot(b.cx, b.cz) / city.coastR(b.cx, b.cz);
+    if (dn > 0.49 && dn < 0.62 && Math.abs(dn - 0.54) < siteErr) { site = b; siteErr = Math.abs(dn - 0.54); }
+  }
+  if (site) {
+    city.addConstructionSite(site);
+    site.built = site.mega = true;
+  }
+  // Turm mit dem riesigen Durchbruch: der freie Block der Mittelstadt, der der Neon-Röhre am nächsten liegt
+  let holeB = null, holeD = Infinity;
+  for (const b of blocks.values()) {
+    if ((b.zone !== 'midtown' && b.zone !== 'downtown') || b.super || b.mega || parkRho(b.cx, b.cz) < 1.1 || !lotOK(b)) continue;
+    const d = Math.hypot(b.cx - city.neonTube.cx, b.cz - city.neonTube.cz);
+    if (d < holeD) { holeB = b; holeD = d; }
+  }
+  if (holeB) {
+    city.addHoleTower(holeB);
+    holeB.built = holeB.mega = true;
+  }
+  if (city.stadium) city.addStadium(city.stadium);
+  for (const b of blocks.values()) {
+    if (b.super || b.mega) continue;
     if (parkRho(b.cx, b.cz) < 0.9) continue;
     const plazaChance = b.zone === 'downtown' || b.zone === 'midtown' ? 0.05 : 0.02;
     if (rand() < plazaChance && lotOK(b)) {
@@ -221,7 +315,7 @@ export function generateLayout(city, rand) {
     const pts = rectCorners(rect);
     pts.push({ x: rect.cx, z: rect.cz });
     for (const p of pts) {
-      if (net.clearance(p.x, p.z) < 1.3 || trackDist(p.x, p.z) < TRACK_CLEAR || parkRho(p.x, p.z) < 1.06) return false;
+      if (net.clearance(p.x, p.z) < 1.3 || trackDist(p.x, p.z) < TRACK_CLEAR || parkRho(p.x, p.z) < 1.06 || inTube(p.x, p.z)) return false;
       if (sbRef && !(p.x > sbRef.X0 + 1.2 && p.x < sbRef.X1 - 1.2 && p.z > sbRef.Z0 + 1.2 && p.z < sbRef.Z1 - 1.2)) return false;
       if (coast(p.x, p.z) > BOULEVARD_D - BLVD_W / 2 - 1.5 && sbRef) return false;
     }
@@ -247,6 +341,7 @@ export function generateLayout(city, rand) {
     return rect;
   };
   for (const sb of sbs) {
+    if (sb.stadium) continue; // dort stehen die Ränge
     const zone = 'residential';
     for (const c of sb.curves) {
       const pl = c.road ? c.road.pl : new Polyline(c.pts);
@@ -283,10 +378,12 @@ export function generateLayout(city, rand) {
 
   // ---------------------------------------------------------------- Bäume außerhalb der Parks
   city.buildIndex(); // für solidNear
-  const treeOK = (x, z, clear) => net.clearance(x, z) > clear && trackDist(x, z) > 6 && parkRho(x, z) > 1.02 &&
+  const st = city.stadium, inStadium = (x, z) => st && x > st.X0 - 2 && x < st.X1 + 2 && z > st.Z0 - 2 && z < st.Z1 + 2;
+  const treeOK = (x, z, clear) => net.clearance(x, z) > clear && trackDist(x, z) > 6 && parkRho(x, z) > 1.02 && !inStadium(x, z) && !inTube(x, z) &&
     !houses.some((h) => Math.abs(h.cx - x) < 9 && Math.abs(h.cz - z) < 9 && rectsOverlap(h, { cx: x, cz: z, hx: 1.5, hz: 1.5, a: 0 }, 0.5));
-  // Gärten in den Superblöcken
+  // Gärten in den Superblöcken (nicht im Stadion)
   for (const sb of sbs) {
+    if (sb.stadium) continue;
     for (let k = 0; k < 26; k++) {
       const x = sb.X0 + 3 + rand() * (sb.W - 6), z = sb.Z0 + 3 + rand() * (sb.W - 6);
       if (treeOK(x, z, 2.5)) city.trees.push({ x, z, s: 0.65 + rand() * 0.45, sakura: rand() < 0.22 });
@@ -353,7 +450,6 @@ function buildViaduct(city, net) {
   const rail = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#2a272e'), noWallrun: true };
   const seg = 8;
   const a = {}, b = {};
-  city.stations = [0.2 * L, 0.7 * L].map((s) => ({ s, len: 56 }));
   const inStation = (s) => city.stations.some((st) => Math.abs(((s - st.s + L * 1.5) % L) - L / 2) < st.len / 2);
   for (let s = 0; s < L; s += seg) {
     tr.at(s, a);
@@ -394,6 +490,27 @@ function buildViaduct(city, net) {
       city.addRotatedBox(cx, cz, half, 7.2, ang, TRACK_Y + 5.4, TRACK_Y + 5.75, roofC);
     }
   }
+  city.addNeonTube(city.neonTube);
+}
+
+// Abschnitt der Neon-Röhre: 120 m Bahn mit möglichst wenig Krümmung, weit weg von den Bahnhöfen, gern in der Mittelstadt.
+// Innen 18 m breit und 14 m hoch – genug, um neben dem Zug mit dem Gleiter hindurchzufliegen (hw: halbe Innenbreite)
+function pickTubeSection(city) {
+  const tr = city.track, L = tr.length, half = 60, a = {}, b = {};
+  let best = null;
+  for (let s = 0; s < L; s += 4) {
+    if (city.stations.some((st) => Math.abs(((s - st.s + L * 1.5) % L) - L / 2) < st.len / 2 + half + 24)) continue;
+    let turn = 0;
+    for (let u = -half; u < half; u += 6) {
+      tr.at(s + u, a);
+      tr.at(s + u + 6, b);
+      turn += Math.abs(Math.atan2(a.tx * b.tz - a.tz * b.tx, a.tx * b.tx + a.tz * b.tz));
+    }
+    tr.at(s, a);
+    const dn = Math.hypot(a.x, a.z) / city.coastR(a.x, a.z), score = turn + 0.6 * Math.abs(dn - 0.38);
+    if (!best || score < best.score) best = { score, s0: s - half, s1: s + half, cx: a.x, cz: a.z, hw: 9, h: 14 };
+  }
+  return best;
 }
 
 // Bahntrasse: geschlossene, weich geschwungene Schleife durch Mittelstadt und Wohnviertel

@@ -173,8 +173,8 @@ export class Traffic {
 
     // Instanzen je Modell: Lack (Instanzfarbe), dunkle Teile, leuchtende Lichter
     this.meshes = {};
-    const paintMat = toonMaterial('#ffffff', { rim: 0.25 });
-    const darkMat = toonMaterial('#15161c', { rim: 0.1 });
+    const paintMat = toonMaterial('#ffffff', { rim: 0.25, pbr: { physical: true, roughness: 0.38, metalness: 0.3, clearcoat: 1, clearcoatRoughness: 0.05 } }); // Autolack mit Klarlack
+    const darkMat = toonMaterial('#15161c', { rim: 0.1, pbr: { roughness: 0.12 } }); // Scheiben, Reifen
     const lightMat = new THREE.MeshBasicMaterial({ vertexColors: true });
     for (const [kind, m] of Object.entries(models)) {
       const n = Math.max(1, this.cars.filter((c) => c.kind === kind).length);
@@ -199,6 +199,7 @@ export class Traffic {
         kind: car.kind === 'bus' ? 'bus' : 'car', pos: new THREE.Vector3(), quat: new THREE.Quaternion(), vel: new THREE.Vector3(),
         boxes: [{ min: new THREE.Vector3(-m.W / 2, 0.15, -m.L / 2), max: new THREE.Vector3(m.W / 2, h, m.L / 2) }],
         worldPoint(local, out) { return out.copy(local).applyQuaternion(this.quat).add(this.pos); },
+        pointVel(p, out) { return out.copy(this.vel); }, // Mitfahren (player.js): ohne Drehung überall gleich schnell
       };
     }
     this.movers = this.cars.map((c) => c.mover);
@@ -215,7 +216,7 @@ export class Traffic {
       }
     }
     if (this.heads.length) {
-      const pole = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 4.2, 0.14).translate(0, 2.1, 0), toonMaterial('#24222c', { rim: 0 }), this.heads.length);
+      const pole = new THREE.InstancedMesh(new THREE.BoxGeometry(0.14, 4.2, 0.14).translate(0, 2.1, 0), toonMaterial('#24222c', { rim: 0, pbr: { roughness: 0.45, metalness: 0.7 } }), this.heads.length);
       const lamp = new THREE.InstancedMesh(new THREE.BoxGeometry(0.32, 0.32, 0.12).translate(0, 4.0, 0.12), new THREE.MeshBasicMaterial({ color: '#ffffff' }), this.heads.length);
       const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
       this.heads.forEach((h, i) => {

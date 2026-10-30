@@ -4,7 +4,16 @@ import { DUSK_GLSL } from './palette.js';
 import { gradientMap, toonMaterial } from './toon.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { Terrain } from './terrain.js';
-import { generateLayout } from './citygen.js';
+import { generateLayout, TRACK_Y } from './citygen.js';
+import { buildGrinds } from './grind.js';
+import { buildLandmarks, landmarkMeshes } from './landmarks.js';
+import { pierMeshes } from './pier.js';
+import { neonMeshes, placeNeonRings } from './neon.js';
+import { stadiumMeshes } from './stadium.js';
+import { FACADE_PARS, FACADE_COLOR } from './facade.js';
+import { leafHook, barkHook } from './foliage.js';
+
+const _rockG = new THREE.Vector2();
 
 // Die Stadt besteht aus Boxen: achsenparallel im Raster, um die Hochachse gedreht an geschwungenen
 // Straßen. Das hält Kollision und Raycasts einfach und exakt; Fenster entstehen komplett im Shader.
@@ -36,6 +45,10 @@ export class City {
     this.mapUniforms = {
       uCoastR0: { value: 400 }, uCoastA: { value: new Array(6).fill(0) }, uCoastP: { value: new Array(6).fill(0) },
       uLayout: { value: null }, uLayoutExt: { value: 560 },
+      // Kanal: dort schneidet der Boden-Shader die Fläche aus (außer unter den Brücken)
+      uCanal: { value: new THREE.Vector4(1e6, 1e6, -1e6, -1e6) }, uCanalBr: { value: new THREE.Vector4(1e6, 1e6, 1e6, 1e6) }, uCanalBrHalf: { value: 7.5 },
+      // Felsinsel: Höhenkarte (rock.js) und ihre Lage (x, z, halbe Kantenlänge) – Schaum und Flachwasser im Meer
+      tRock: { value: null }, uRock: { value: new THREE.Vector3(0, 0, 1) },
     };
     this.generate(seed);
   }
@@ -56,35 +69,58 @@ export class City {
   generate(seed) {
     this.seed = seed;
     const rand = mulberry32(seed);
-    const N = 18, B = 38, S = 15, P = B + S;
+    const N = 22, B = 38, S = 15, P = B + S;
     const half = (N * P) / 2;
     this.layout = { N, B, S, P, half, origin: -half + S / 2 };
     const amps = [0.05, 0.075, 0.055, 0.035, 0.022, 0.012];
-    this.island = { r0: 410, a: amps.map((a) => a * (0.75 + rand() * 0.5)), p: amps.map(() => rand() * Math.PI * 2) };
+    this.island = { r0: 500, a: amps.map((a) => a * (0.75 + rand() * 0.5)), p: amps.map(() => rand() * Math.PI * 2) };
     this.boxes = [];
+    this.seats = []; // Sitzplätze (Bänke, Hocker): { x, y, z, nx, nz, half, depth } – y = Sitzfläche, n = Blickrichtung
     this.roofs = [];
     this.towers = [];
     this.antennas = [];
     this.trees = [];
     this.waterTowers = [];
     this.houses = [];
+    this.mega = null;
+    this.site = null;
+    this.lighthouse = null;
+    this.holeTower = null;
+    this.stadiumData = null;
+    this.neonMat = null;
     this.terrain = new Terrain((x, z) => this.coastDist(x, z));
 
     generateLayout(this, rand);
     this.promenade(rand);
+    buildLandmarks(this, rand); // Hafen, Leuchtturm-Insel (landmarks.js)
+    this.placeFans();
 
     const mu = this.mapUniforms;
     mu.uCoastR0.value = this.island.r0;
     mu.uCoastA.value = [...this.island.a];
     mu.uCoastP.value = [...this.island.p];
+    const cn = this.canal, cw = cn ? cn.hw + cn.wall : 0;
+    if (cn) mu.uCanal.value.set(cn.x - cw, cn.z0 - cn.wall, cn.x + cw, cn.z1 + cn.wall);
+    else mu.uCanal.value.set(1e6, 1e6, -1e6, -1e6);
+    mu.uCanalBr.value.set(...[0, 1, 2, 3].map((k) => cn?.bridges[k] ?? 1e6));
+    if (cn) mu.uCanalBrHalf.value = cn.half;
 
     for (const t of this.trees) {
       t.y = this.terrain.height(t.x, t.z);
       this.addBox(t.x - 0.25, t.y, t.z - 0.25, t.x + 0.25, t.y + 2.6 * t.s, t.z + 0.25, { noRender: true, noWallrun: true, kind: 2, style: 3, seed: 0, color: new THREE.Color('#000') });
     }
     this.buildIndex();
+    placeNeonRings(this); // Neon-Grindringe um einige Häuserblöcke (braucht den Index)
     this.buildMesh();
     this.buildDecor(rand);
+    // Grind-Linien (Viadukt, Kabel zwischen Dächern) – die Kabel gehören zur Deko
+    const g = buildGrinds(this, rand);
+    this.grinds = g.net;
+    if (g.mesh) this.decor.add(g.mesh);
+    this.decor.add(landmarkMeshes(this));
+    this.decor.add(pierMeshes(this)); // Jahrmarkt auf dem Pier
+    this.decor.add(neonMeshes(this)); // Neon-Röhre der Hochbahn, Rahmen am Turm mit Durchbruch
+    this.decor.add(stadiumMeshes(this)); // Rasen, Laufbahn, Flutlicht, Anzeigetafel
   }
 
   // Bäume und Laternen entlang der Uferpromenade
@@ -172,6 +208,214 @@ export class City {
     const color = new THREE.Color(pick(pal, rand));
     color.offsetHSL((rand() - 0.5) * 0.02, 0, (rand() - 0.5) * 0.06);
     return { style, color, seed: Math.floor(rand() * 1000), kind: 0 };
+  }
+
+  // Mega-Tower nahe der Inselmitte: Sockel über den ganzen Block, darüber ein Schaft mit fünf Rücksprüngen bis 432 m
+  // (jede Stufe ein Dach zum Landen und Sitzen), oben eine Antenne bis 525 m. Dunkles Glas, Leuchtringe an den
+  // Rücksprüngen (buildDecor) – von überall auf der Insel zu sehen und der höchste Ankerpunkt der Stadt.
+  addMegaTower(b) {
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, W = b.x1 - b.x0;
+    const glass = { style: 0, kind: 0, seed: 77, color: new THREE.Color('#5a7f9e') };
+    const box = (hw, y0, y1, look = glass) => this.addBox(cx - hw, y0, cz - hw, cx + hw, y1, cz + hw, look);
+    const base = box(W / 2, 0, 34, { ...glass, color: new THREE.Color('#4a5a6e') });
+    this.roofs.push(base);
+    const segs = [];
+    for (const [hw, y0, y1] of [[15.5, 34, 150], [14, 150, 262], [12.5, 262, 352], [10.5, 352, 410], [8.5, 410, 432]]) {
+      const s = box(hw, y0, y1);
+      segs.push(s);
+      this.roofs.push(s);
+    }
+    const top = segs[segs.length - 1];
+    this.antennas.push(this.addBox(cx - 0.9, 432, cz - 0.9, cx + 0.9, 525, cz + 0.9, { style: 3, kind: 2, seed: 0, color: new THREE.Color('#8a8494') }));
+    this.towers.push({ base, top, h: 432, style: 0, zone: 'downtown' });
+    this.mega = { cx, cz, segs };
+  }
+
+  // Lüfter auf etwa jedem fünften Flachdach unter 40 m (die Dachmitte hält roofProps frei): das Gehäuse ist eine Box,
+  // oben dreht der Ventilator (fans.js). Wer darauf landet oder läuft, fliegt hoch; im Gleitflug darüber trägt der
+  // Aufwind (player.js). Raster für die schnelle Suche.
+  placeFans() {
+    this.fans = [];
+    this.fanGrid = new Map();
+    let k = 0;
+    for (const r of this.roofs) {
+      const cx = r.rot ? r.rot.cx : (r.minX + r.maxX) / 2, cz = r.rot ? r.rot.cz : (r.minZ + r.maxZ) / 2;
+      const w = r.rot ? 2 * Math.min(r.rot.hx, r.rot.hz) : Math.min(r.maxX - r.minX, r.maxZ - r.minZ);
+      if (r.maxY < 6 || r.maxY > 40 || w < 8) continue;
+      if (k++ % 5 !== 2) continue; // nur jedes fünfte passende Dach
+      const y = r.maxY + 1;
+      this.addBox(cx - 1.5, r.maxY, cz - 1.5, cx + 1.5, y, cz + 1.5, { style: 3, kind: 2, seed: 0, color: new THREE.Color('#6e6a78'), fan: true });
+      const f = { x: cx, z: cz, y, i: this.fans.length };
+      this.fans.push(f);
+      const key = (Math.floor(cx / 40) + 512) * 1024 + Math.floor(cz / 40) + 512;
+      let cell = this.fanGrid.get(key);
+      if (!cell) this.fanGrid.set(key, (cell = []));
+      cell.push(f);
+    }
+  }
+
+  // nächster Lüfter in waagrechtem Abstand r (oder null)
+  fanNear(x, z, r) {
+    let best = null, bd = r * r;
+    const ix = Math.floor(x / 40), iz = Math.floor(z / 40);
+    for (let a = ix - 1; a <= ix + 1; a++) {
+      for (let b = iz - 1; b <= iz + 1; b++) {
+        for (const f of this.fanGrid.get((a + 512) * 1024 + b + 512) ?? []) {
+          const d = (f.x - x) ** 2 + (f.z - z) ** 2;
+          if (d < bd) { bd = d; best = f; }
+        }
+      }
+    }
+    return best;
+  }
+
+  // Rohbau-Wolkenkratzer: fertiger Sockel, darüber Betondecken bis gut zwei Drittel der Höhe, oben nur noch das offene
+  // Stahlskelett aus Stützen und Trägern (zum Durchschwingen; die Randträger der oberen Etagen sind Grind-Linien).
+  // Zwei Turmdrehkräne stehen daneben am Boden – die Ausleger drehen sich (harbor.js: RoofCranes).
+  addConstructionSite(b) {
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, H = 150, half = 15, podium = 14, slabTop = 100, lvl = 8;
+    const steel = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#c0582e'), noWallrun: true };
+    const concrete = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#9a949e') };
+    this.roofs.push(this.addBox(cx - half - 2, 0, cz - half - 2, cx + half + 2, podium, cz + half + 2, { ...concrete, color: new THREE.Color('#7e7884') }));
+    const cols = [-half, -half / 3, half / 3, half];
+    for (const x of cols) for (const z of cols) this.addBox(cx + x - 0.45, podium, cz + z - 0.45, cx + x + 0.45, H, cz + z + 0.45, steel);
+    const grind = [];
+    for (let y = podium + lvl; y <= H; y += lvl) {
+      if (y <= slabTop) this.roofs.push(this.addBox(cx - half - 0.4, y - 0.35, cz - half - 0.4, cx + half + 0.4, y, cz + half + 0.4, concrete));
+      for (const z of cols) this.addBox(cx - half, y - 0.7, cz + z - 0.3, cx + half, y, cz + z + 0.3, steel);   // Träger in x
+      for (const x of cols) this.addBox(cx + x - 0.3, y - 0.7, cz - half, cx + x + 0.3, y, cz + half, steel);   // Träger in z
+      if (y > slabTop) {
+        // äußere Randträger vor den Stützen – frei zum Grinden, eine Seite nach der anderen
+        const e = half + 1;
+        for (const s of [-1, 1]) {
+          this.addBox(cx - e, y - 0.5, cz + s * e - 0.25, cx + e, y, cz + s * e + 0.25, steel);
+          this.addBox(cx + s * e - 0.25, y - 0.5, cz - e, cx + s * e + 0.25, y, cz + e, steel);
+          grind.push([{ x: cx - e, y, z: cz + s * e }, { x: cx + e, y, z: cz + s * e }]);
+          grind.push([{ x: cx + s * e, y, z: cz - e }, { x: cx + s * e, y, z: cz + e }]);
+        }
+      }
+    }
+    // Kräne stehen am Boden in zwei gegenüberliegenden Blockecken, verschieden hoch (die Ausleger kreuzen sich nicht)
+    const yellow = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#e0b81e'), noWallrun: true };
+    const cranes = [[b.x0 + 2.2, b.z0 + 2.2, H + 26, 52, 0.6, 0.07], [b.x1 - 2.2, b.z1 - 2.2, H + 12, 44, 2.4, -0.09]];
+    for (const [x, z, y] of cranes) this.addBox(x - 1.2, 0, z - 1.2, x + 1.2, y, z + 1.2, yellow);
+    this.site = {
+      cx, cz, top: H, grind,
+      cranes: cranes.map(([x, z, y, reach, phase, omega]) => ({ x, z, y, reach, phase, omega })),
+    };
+  }
+
+  // Turm mit Durchbruch: hoch oben ein gewaltiges Loch quer durch das ganze Gebäude zum Durchfliegen (Neon-Rahmen:
+  // neon.js). Das Loch schaut zur Neon-Röhre der Hochbahn.
+  addHoleTower(b) {
+    const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, half = 16, wall = 6.5, y0 = 118, y1 = 168, H = 222; // Loch über der Mittelstadt (≤ 140 m)
+    const T = this.neonTube, alongX = Math.abs(T.cx - cx) > Math.abs(T.cz - cz);
+    const glass = { style: 0, kind: 0, seed: 141, color: new THREE.Color('#465a7a') };
+    const dark = { ...glass, color: new THREE.Color('#3a4660') };
+    const box = (x0, ya, z0, x1, yb, z1, look = glass) => this.addBox(cx + x0, ya, cz + z0, cx + x1, yb, cz + z1, look);
+    const base = box(-half - 2, 0, -half - 2, half + 2, 18, half + 2, dark);
+    this.roofs.push(base, box(-half, 18, -half, half, y0, half));
+    // Lochgeschoss: nur die beiden Seitenwände (Lochachse x: Wände bei ±z, sonst bei ±x)
+    for (const s of [-1, 1]) {
+      const a0 = s > 0 ? half - wall : -half, a1 = s > 0 ? half : -half + wall;
+      if (alongX) box(-half, y0, a0, half, y1, a1);
+      else box(a0, y0, -half, a1, y1, half);
+    }
+    const top = box(-half, y1, -half, half, H, half), crown = box(-half + 5, H, -half + 5, half - 5, H + 14, half - 5, dark);
+    this.roofs.push(top, crown);
+    this.antennas.push(this.addBox(cx - 0.8, H + 14, cz - 0.8, cx + 0.8, H + 52, cz + 0.8, { style: 3, kind: 2, seed: 0, color: new THREE.Color('#8a8494') }));
+    this.towers.push({ base, top: crown, h: H + 14, style: 0, zone: 'midtown' });
+    this.holeTower = { cx, cz, half, wall, y0, y1, H, alongX };
+  }
+
+  // Stadion in einem Superblock ohne Innenstraßen: ovale Ränge in vier Stufen (Sitzfarben in Blöcken), an den
+  // Stirnseiten Tore unter den oberen Rängen, Dachring auf Stützen (Innen- und Außenkante sind Grind-Linien), vier
+  // Flutlichtmasten, eine Anzeigetafel. Rasen, Laufbahn, Linien und Lichter: stadium.js
+  addStadium(sb) {
+    const cx = (sb.X0 + sb.X1) / 2, cz = (sb.Z0 + sb.Z1) / 2, A = sb.W / 2 - 3, Bz = sb.W / 2 - 7, n = 44;
+    const P = (th, s) => ({ x: cx + Math.cos(th) * A * s, z: cz + Math.sin(th) * Bz * s });
+    const look = (hex, extra = {}) => ({ style: 3, kind: 2, seed: 0, color: new THREE.Color(hex), ...extra });
+    const SEATS = ['#c8352b', '#f4f0ea', '#2f6fb0', '#f4f0ea'];
+    // Ringstück zwischen den Maßstäben s0..s1 (vom Mittelpunkt aus) im Abschnitt k, Höhe y0..y1
+    const ringBox = (k, s0, s1, y0, y1, info) => {
+      const ta = (k / n) * Math.PI * 2, tb = ((k + 1) / n) * Math.PI * 2, tm = (ta + tb) / 2, sm = (s0 + s1) / 2;
+      const a = P(ta, sm), b = P(tb, sm), c = P(tm, sm), r = Math.hypot(c.x - cx, c.z - cz) / sm;
+      return this.addRotatedBox(c.x, c.z, Math.hypot(b.x - a.x, b.z - a.z) / 2 + 0.5, ((s1 - s0) * r) / 2, Math.atan2(b.z - a.z, b.x - a.x), y0, y1, info);
+    };
+    for (let k = 0; k < n; k++) {
+      const tm = ((k + 0.5) / n) * Math.PI * 2, gate = Math.abs(Math.sin(tm)) < Math.sin(Math.PI / n) * 1.2; // Tore an den Stirnseiten
+      const seat = look(SEATS[Math.floor(k / 4) % SEATS.length]);
+      for (let t = 0; t < 4; t++) {
+        const y1 = 1.6 + t * 3.2;
+        if (gate && y1 < 5.5) continue;
+        ringBox(k, 0.66 + t * 0.085, 1.0, gate ? 5 : 0, y1, seat);
+      }
+      ringBox(k, 0.965, 1.0, gate ? 5 : 0, 15, look('#8a8494'));                                   // Rückwand
+      ringBox(k, 0.86, 1.06, 19.5, 20.3, look('#f4f0ea', { noWallrun: true }));                   // Dachring
+      if (k % 2 === 0 && Math.abs(Math.cos(tm)) > 0.2) { const p = P(tm, 0.982); this.addBox(p.x - 0.45, 15, p.z - 0.45, p.x + 0.45, 19.5, p.z + 0.45, look("#d8d4ce")); }
+    }
+    // Grind-Linien an der Innen- und Außenkante des Dachs
+    const ring = (s) => { const pts = []; for (let k = 0; k < n * 2; k++) { const p = P((k / (n * 2)) * Math.PI * 2, s); pts.push({ x: p.x, y: 20.3, z: p.z }); } return pts; };
+    // Flutlichtmasten in den Ecken, Anzeigetafel auf der Längsseite
+    const masts = [[sb.X0 + 4, sb.Z0 + 4], [sb.X1 - 4, sb.Z0 + 4], [sb.X0 + 4, sb.Z1 - 4], [sb.X1 - 4, sb.Z1 - 4]];
+    for (const [x, z] of masts) {
+      this.addBox(x - 0.7, 0, z - 0.7, x + 0.7, 44, z + 0.7, look('#9a949e'));
+      this.addBox(x - 3.5, 44, z - 3.5, x + 3.5, 47.5, z + 3.5, look('#2a2630', { noWallrun: true }));
+    }
+    const sc = P(Math.PI / 2, 1.0);
+    this.addBox(sc.x - 8, 15, sc.z - 0.6, sc.x + 8, 19.4, sc.z + 0.6, look('#1a1820'));
+    this.stadiumData = { cx, cz, A, Bz, n, masts, board: { x: sc.x, z: sc.z }, rings: [ring(0.86), ring(1.06)] };
+  }
+
+  // Kanal durch die Innenstadt (Lage: citygen.js): Kaimauern beiderseits und an den Enden, dunkles Bett, flache Brücken
+  // knapp unter der Straßenoberfläche (die Fahrbahn zeichnet das Bodennetz darüber), niedrige Geländer an den
+  // Brückenrändern und an den Kanalenden. Wasser: world.js
+  addCanal(c) {
+    const stone = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#8a8490') };
+    const bridge = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#7a7480') };
+    const rail = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#2a2630'), noWallrun: true };
+    const w = c.hw + c.wall;
+    for (const s of [-1, 1]) this.addBox(c.x + (s < 0 ? -w : c.hw), c.bottom, c.z0 - c.wall, c.x + (s < 0 ? -c.hw : w), 0.05, c.z1 + c.wall, stone);
+    this.addBox(c.x - c.hw, c.bottom, c.z0 - c.wall, c.x + c.hw, 0.05, c.z0, stone);
+    this.addBox(c.x - c.hw, c.bottom, c.z1, c.x + c.hw, 0.05, c.z1 + c.wall, stone);
+    this.addBox(c.x - w, c.bottom - 0.4, c.z0 - c.wall, c.x + w, c.bottom, c.z1 + c.wall, { ...stone, color: new THREE.Color('#2e343c') });
+    for (const zb of c.bridges) {
+      this.addBox(c.x - w, -0.6, zb - c.half, c.x + w, -0.02, zb + c.half, bridge);
+      for (const s of [-1, 1]) this.addBox(c.x - w, -0.02, zb + s * c.half - (s > 0 ? 0.25 : 0), c.x + w, 1.0, zb + s * c.half + (s < 0 ? 0.25 : 0), rail);
+    }
+    this.addBox(c.x - w, 0.05, c.z0 - c.wall - 0.25, c.x + w, 1.0, c.z0 - c.wall, rail);
+    this.addBox(c.x - w, 0.05, c.z1 + c.wall, c.x + w, 1.0, c.z1 + c.wall + 0.25, rail);
+  }
+
+  // Neon-Röhre: ein langes Glasgebäude umschließt die Hochbahn auf ihrem Viadukt – Wände, seitliche Laufstege, Dach
+  // (begehbar, die Kanten sind Grind-Linien) und Portalrahmen an beiden Enden; innen und außen leuchten Neonbögen und
+  // -streifen (neon.js). Am Boden braucht sie keinen Platz, sie ruht auf dem Viadukt.
+  addNeonTube(T) {
+    const tr = this.track, a = {}, b = {}, seg = 6, Y = TRACK_Y, { hw, h } = T;
+    const glass = { style: 0, kind: 0, seed: 99, color: new THREE.Color('#34345a') };
+    const frame = { style: 3, kind: 2, seed: 0, color: new THREE.Color('#2a2838') };
+    for (let s = T.s0; s < T.s1 - 1e-6; s += seg) {
+      tr.at(s, a);
+      tr.at(s + seg, b);
+      const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2, ang = Math.atan2(b.z - a.z, b.x - a.x);
+      const half = Math.hypot(b.x - a.x, b.z - a.z) / 2 + 0.3, nx = -Math.sin(ang), nz = Math.cos(ang);
+      for (const side of [-1, 1]) {
+        this.addRotatedBox(cx + nx * side * (hw + 0.3), cz + nz * side * (hw + 0.3), half, 0.3, ang, Y - 1.3, Y + h, glass);
+        this.addRotatedBox(cx + nx * side * (hw + 3.2) / 2, cz + nz * side * (hw + 3.2) / 2, half, (hw - 3.2) / 2, ang, Y - 1.3, Y, frame);
+      }
+      this.addRotatedBox(cx, cz, half, hw + 0.7, ang, Y + h, Y + h + 0.7, frame);
+    }
+    T.edges = [[], []];
+    for (let s = T.s0; s <= T.s1 + 1e-6; s += 3) {
+      tr.at(s, a);
+      [-1, 1].forEach((side, k) => T.edges[k].push({ x: a.x - a.tz * side * (hw + 0.7), y: Y + h + 0.7, z: a.z + a.tx * side * (hw + 0.7) }));
+    }
+    for (const s of [T.s0, T.s1]) {
+      tr.at(s, a);
+      const ang = Math.atan2(a.tz, a.tx), nx = -a.tz, nz = a.tx;
+      for (const side of [-1, 1]) this.addRotatedBox(a.x + nx * side * (hw + 0.6), a.z + nz * side * (hw + 0.6), 0.6, 0.7, ang, Y - 2.5, Y + h + 1.2, frame);
+      this.addRotatedBox(a.x, a.z, 0.6, hw + 1.3, ang, Y + h, Y + h + 1.2, frame);
+    }
   }
 
   // Bauform je Viertel: Türme, Stufenpyramiden, Zwillingstürme mit Brücke, Spitztürme,
@@ -361,15 +605,16 @@ export class City {
     return b;
   }
 
-  // Strahl gegen alle Gebäude (und optional den Boden). Gibt ein wiederverwendetes Ergebnisobjekt zurück.
-  raycast(origin, dir, maxDist, includeGround = false) {
+  // Strahl gegen alle Gebäude (oder eine Vorauswahl davon) und optional den Boden. Gibt ein wiederverwendetes
+  // Ergebnisobjekt zurück.
+  raycast(origin, dir, maxDist, includeGround = false, boxes = this.boxes) {
     const ox = origin.x, oy = origin.y, oz = origin.z;
     const dx = Math.abs(dir.x) < 1e-9 ? 1e-9 : dir.x;
     const dy = Math.abs(dir.y) < 1e-9 ? 1e-9 : dir.y;
     const dz = Math.abs(dir.z) < 1e-9 ? 1e-9 : dir.z;
     const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
     let best = maxDist, bestBox = null, bestAxis = -1, bestN = null;
-    for (const b of this.boxes) {
+    for (const b of boxes) {
       if (b.rot) {
         const t = this.rayRotated(b, ox, oy, oz, dx, dy, dz, best);
         if (t !== null) { best = t; bestBox = b; bestAxis = 3; bestN = this._rn; }
@@ -389,17 +634,28 @@ export class City {
       if (tmax < tmin || tmin < 0 || tmin >= best) continue;
       best = tmin; bestBox = b; bestAxis = axis;
     }
-    let ground = false;
+    let ground = false, rock = false;
     if (includeGround && dy < 0) {
       const tg = this.rayGround(ox, oy, oz, dx, dy, dz, best);
       if (tg !== null) { best = tg; bestBox = null; ground = true; }
     }
-    if (!bestBox && !ground) return null;
+    // Felsinsel: fest wie ein Gebäude, Normale aus dem Höhenfeld
+    const R = this.terrain.rock, tr = R ? R.ray(ox, oy, oz, dx, dy, dz, best) : null;
+    if (tr !== null) {
+      best = tr;
+      bestBox = null;
+      ground = false;
+      rock = true;
+      R.gradient(ox + dx * tr, oz + dz * tr, _rockG);
+      (this._rn ??= new THREE.Vector3()).set(-_rockG.x, 1, -_rockG.y).normalize();
+      bestN = this._rn;
+    }
+    if (!bestBox && !ground && !rock) return null;
     const h = this.hit;
     h.dist = best; h.box = bestBox; h.ground = ground;
     h.point.set(ox + dir.x * best, oy + dir.y * best, oz + dir.z * best);
     if (ground) h.normal.set(0, 1, 0);
-    else if (bestAxis === 3) h.normal.copy(bestN);
+    else if (rock || bestAxis === 3) h.normal.copy(bestN);
     else h.normal.set(bestAxis === 0 ? -Math.sign(dx) : 0, bestAxis === 1 ? -Math.sign(dy) : 0, bestAxis === 2 ? -Math.sign(dz) : 0);
     return h;
   }
@@ -531,7 +787,7 @@ export class City {
 
   // ---------------------------------------------------------------- Dystopische Details (nur Optik)
   buildDecor(rand) {
-    for (const c of this.decor.children) c.geometry.dispose();
+    this.decor.traverse((o) => o.geometry?.dispose());
     this.decor.clear();
     const signs = [], boards = [], strips = [], beacons = [];
     const neon = () => new THREE.Color(pick(NEON, rand));
@@ -584,6 +840,48 @@ export class City {
       }
     }
     for (const a of this.antennas) beacons.push([(a.minX + a.maxX) / 2, a.maxY + 0.4, (a.minZ + a.maxZ) / 2]);
+    // Neon auf Straßenhöhe in der Innenstadt: senkrechte Schilder und Ladenschilder über dem Erdgeschoss, darunter fällt
+    // farbiges Licht auf den Boden – nachts und bei Regen spiegelt sich das alles in den nassen Straßen
+    const rs = mulberry32(this.seed + 77), spill = [];
+    // das Licht fällt nur auf festen Boden (nicht über dem offenen Kanal)
+    const shop = (x, z, nx, nz) => spill.push({ x: x + nx * 3.2, z: z + nz * 3.2 });
+    for (const t of this.towers) {
+      const b = t.base;
+      if (b.rot || b.maxY < 12 || Math.hypot((b.minX + b.maxX) / 2, (b.minZ + b.maxZ) / 2) > 340) continue;
+      for (let face = 0; face < 4; face++) {
+        const alongX = face < 2, span = alongX ? b.maxX - b.minX : b.maxZ - b.minZ, nx = face === 2 ? -1 : face === 3 ? 1 : 0, nz = face === 0 ? -1 : face === 1 ? 1 : 0;
+        const at = (u, out) => [face === 2 ? b.minX - out : face === 3 ? b.maxX + out : b.minX + u, face === 0 ? b.minZ - out : face === 1 ? b.maxZ + out : b.minZ + u];
+        if (rs() < 0.5 && span > 7) {
+          const sh = 4 + rs() * 7.5, out = 0.9 + rs() * 0.9, y = 4.6 + rs() * Math.min(9, b.maxY - sh - 5), u = 1.5 + rs() * (span - 3), [x, z] = at(u, out / 2);
+          signs.push({ x, y: y + sh / 2, z, sx: alongX ? 0.3 : out, sy: sh, sz: alongX ? out : 0.3, color: neon2(rs) });
+          shop(x, z, nx, nz);
+          spill[spill.length - 1].color = signs[signs.length - 1].color;
+        }
+        if (rs() < 0.55 && span > 9) {
+          const w = 5 + rs() * Math.min(9, span - 6), h = 1.3 + rs() * 0.8, u = w / 2 + 0.5 + rs() * (span - w - 1), [x, z] = at(u, 0.14);
+          const rotY = face === 0 ? Math.PI : face === 1 ? 0 : face === 2 ? -Math.PI / 2 : Math.PI / 2;
+          boards.push({ x, y: 4.6 + h / 2, z, w, h, rotY, color: neon2(rs) });
+          shop(x, z, nx, nz);
+          spill[spill.length - 1].color = boards[boards.length - 1].color;
+        }
+      }
+    }
+    // Mega-Tower: Leuchtring an jedem Rücksprung, die obersten Stufen mit leuchtenden Kanten
+    if (this.mega) {
+      const c = new THREE.Color('#3cf2ff'), e = 0.2;
+      this.mega.segs.forEach((top, k) => {
+        const tw = top.maxX - top.minX, y = top.maxY - 0.4, mx = (top.minX + top.maxX) / 2, mz = (top.minZ + top.maxZ) / 2;
+        strips.push({ x: mx, y, z: top.minZ - e, sx: tw + 0.4, sy: 0.5, sz: 0.25, color: c });
+        strips.push({ x: mx, y, z: top.maxZ + e, sx: tw + 0.4, sy: 0.5, sz: 0.25, color: c });
+        strips.push({ x: top.minX - e, y, z: mz, sx: 0.25, sy: 0.5, sz: tw + 0.4, color: c });
+        strips.push({ x: top.maxX + e, y, z: mz, sx: 0.25, sy: 0.5, sz: tw + 0.4, color: c });
+        if (k >= 3) {
+          for (const [x, z] of [[top.minX, top.minZ], [top.maxX, top.minZ], [top.minX, top.maxZ], [top.maxX, top.maxZ]]) {
+            strips.push({ x: x + Math.sign(x - mx) * e, y: (top.minY + top.maxY) / 2, z: z + Math.sign(z - mz) * e, sx: 0.25, sy: top.maxY - top.minY, sz: 0.25, color: c });
+          }
+        }
+      });
+    }
 
     const m = new THREE.Matrix4(), q = new THREE.Quaternion(), p = new THREE.Vector3(), s = new THREE.Vector3();
     const inst = (geo, mat, list, fill) => {
@@ -598,15 +896,27 @@ export class City {
       return mesh;
     };
     const hdr = (v) => new THREE.Color(v, v, v);
-    inst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ map: this.glyphs.v, color: hdr(2.6) }), signs, (it) => {
+    // Leuchtreklame: [Material, Grundhelligkeit] – tagsüber gedimmt (setDaylight)
+    this.neon = [
+      [new THREE.MeshBasicMaterial({ map: this.glyphs.v, color: hdr(2.6) }), 2.6],
+      [new THREE.MeshBasicMaterial({ map: this.glyphs.h, color: hdr(2.2), side: THREE.DoubleSide }), 2.2],
+      [new THREE.MeshBasicMaterial({ color: hdr(3.2) }), 3.2],
+    ];
+    inst(new THREE.BoxGeometry(1, 1, 1), this.neon[0][0], signs, (it) => {
       p.set(it.x, it.y, it.z); q.identity(); s.set(it.sx, it.sy, it.sz);
     });
-    inst(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ map: this.glyphs.h, color: hdr(2.2), side: THREE.DoubleSide }), boards, (it) => {
+    inst(new THREE.PlaneGeometry(1, 1), this.neon[1][0], boards, (it) => {
       p.set(it.x, it.y, it.z); q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.rotY); s.set(it.w, it.h, 1);
     });
-    inst(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: hdr(3.2) }), strips, (it) => {
+    inst(new THREE.BoxGeometry(1, 1, 1), this.neon[2][0], strips, (it) => {
       p.set(it.x, it.y, it.z); q.identity(); s.set(it.sx, it.sy, it.sz);
     });
+    this.neonPools = inst(
+      new THREE.PlaneGeometry(13, 13).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: radialTexture(), transparent: true, opacity: 0.3, blending: THREE.AdditiveBlending, depthWrite: false }),
+      spill.filter((it) => !this.terrain.inCanal(it.x, it.z, 7)), (it) => { p.set(it.x, 0.04, it.z); q.identity(); s.set(1, 1, 1); },
+    );
+    this.neonPools.renderOrder = 1;
     this.beaconMat = new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 0.3, 0.2), fog: false });
     inst(new THREE.SphereGeometry(0.5, 8, 6), this.beaconMat, beacons.map(([x, y, z]) => ({ x, y, z })), (it) => {
       p.set(it.x, it.y, it.z); q.identity(); s.set(1, 1, 1);
@@ -618,8 +928,8 @@ export class City {
     const crownGeo = mergeGeometries([blob(1.7, 0, 4.1, 0), blob(1.3, 1.0, 3.6, 0.5), blob(1.25, -0.9, 3.7, -0.5), blob(1.1, 0.2, 4.9, -0.3)]);
     const greens = ['#3f6b45', '#4d7a4a', '#5a7f3c', '#2f5a43', '#46704f'], pinks = ['#e8a0b8', '#f0b8c8', '#d890b0'];
     const treeFill = (t) => { p.set(t.x, t.y ?? 0, t.z); q.setFromAxisAngle(Y, t.x * 0.37 + t.z); s.setScalar(t.s); };
-    const trunks = inst(new THREE.CylinderGeometry(0.16, 0.24, 3, 7).translate(0, 1.5, 0), toonMaterial('#4a3530', { rim: 0 }), this.trees, treeFill);
-    const crowns = inst(crownGeo, toonMaterial('#ffffff', { rim: 0.25 }), this.trees.map((t) => ({ ...t, color: new THREE.Color(pick(t.sakura ? pinks : greens, rand)) })), treeFill);
+    const trunks = inst(new THREE.CylinderGeometry(0.16, 0.24, 3, 7).translate(0, 1.5, 0), toonMaterial('#4a3530', { rim: 0, pbr: { roughness: 0.95, hook: barkHook, key: 'bark' } }), this.trees, treeFill);
+    const crowns = inst(crownGeo, toonMaterial('#ffffff', { rim: 0.25, pbr: { roughness: 0.85, physical: true, sheen: 0.5, sheenRoughness: 0.7, sheenColor: '#c8e0a0', hook: leafHook, key: 'leaf', a2c: true } }), this.trees.map((t) => ({ ...t, color: new THREE.Color(pick(t.sakura ? pinks : greens, rand)) })), treeFill);
     trunks.castShadow = crowns.castShadow = true;
 
     // Wassertanks auf Wohnhäusern (Tank, Dach, Stelzen)
@@ -638,15 +948,16 @@ export class City {
       p.set(x + dx * off, y0 + y, z + dz * off);
       s.set(1, 1, 1);
     };
-    const lampMat = toonMaterial('#262230', { rim: 0 });
+    const lampMat = toonMaterial('#262230', { rim: 0, pbr: { roughness: 0.45, metalness: 0.7 } });
     const poles = inst(new THREE.BoxGeometry(0.16, 7, 0.16), lampMat, spots, lampFill(0, 3.5));
     inst(new THREE.BoxGeometry(0.12, 0.12, 1.6), lampMat, spots, lampFill(0.7, 6.95));
-    inst(new THREE.BoxGeometry(0.5, 0.18, 0.7), new THREE.MeshBasicMaterial({ color: new THREE.Color(4.0, 1.9, 0.8) }), spots, lampFill(1.4, 6.85));
-    const pools = inst(
+    this.lampHead = new THREE.MeshBasicMaterial({ color: new THREE.Color(4.0, 1.9, 0.8) });
+    inst(new THREE.BoxGeometry(0.5, 0.18, 0.7), this.lampHead, spots, lampFill(1.4, 6.85));
+    const pools = (this.lampPools = inst(
       new THREE.PlaneGeometry(9, 9).rotateX(-Math.PI / 2),
       new THREE.MeshBasicMaterial({ map: radialTexture(), color: new THREE.Color(1.0, 0.45, 0.18), transparent: true, opacity: 0.55, blending: THREE.AdditiveBlending, depthWrite: false }),
       spots, lampFill(2.2, 0.03),
-    );
+    ));
     poles.castShadow = true;
     pools.renderOrder = 1;
   }
@@ -693,9 +1004,32 @@ export class City {
   }
 
   updateDecor(time) {
+    if (this.lighthouse) this.lighthouse.beam.rotation.y = time * 0.8; // Lichtkegel des Leuchtturms kreist
+    if (this.neonMat) { const k = 2.1 + 0.45 * Math.sin(time * 1.7); this.neonMat.color.setRGB(k, k, k); } // Neon pulsiert sanft
     if (!this.beaconMat) return;
     const on = Math.sin(time * 2.6) > 0.55 ? 1 : 0.08;
     this.beaconMat.color.setRGB(6 * on, 0.3 * on, 0.2 * on);
+  }
+
+  // Tageslicht und Wetter (environment.js): Fensterlicht, Himmelsspiegelung, Laternen (tagsüber aus, dunkles Glas),
+  // gedimmte Leuchtreklame, nasse Dächer
+  setDaylight({ lit, reflect, lamps, neon, wet = 0, night = 0, real = false }) {
+    this.material.userData.uLit.value = lit;
+    this.material.userData.uReflect.value = reflect;
+    this.material.userData.uWet.value = wet;
+    if (this.lighthouse) { // der Leuchtturm brennt nur nachts (ab Sonnenuntergang), tagsüber ist er ganz aus
+      this.lighthouse.beam.visible = night > 0.01;
+      this.lighthouse.beamMat.uniforms.uOpacity.value = (real ? 0.3 : 0.75) * night;
+      this.lighthouse.lampMat.color.setRGB(0.25 + 2.75 * night, 0.25 + 2.35 * night, 0.28 + 1.32 * night);
+    }
+    if (!this.lampHead) return;
+    this.lampHead.color.setRGB(4.0 * lamps + 0.1 * (1 - lamps), 1.9 * lamps + 0.1 * (1 - lamps), 0.8 * lamps + 0.12 * (1 - lamps));
+    // Hyper-Realistic-Mode: nur ein Hauch – die Augenadaption hellt die Nacht ohnehin auf, nasser Asphalt spiegelt statt zu streuen
+    this.lampPools.material.opacity = (real ? 0.13 * (1 - 0.5 * wet) : 0.55) * lamps;
+    this.lampPools.visible = lamps > 0.01;
+    this.neonPools.material.opacity = (real ? 0.075 * (1 - 0.35 * wet) : 0.2) * neon * night;
+    this.neonPools.visible = neon * night > 0.01;
+    for (const [m, v] of this.neon) m.color.setScalar(v * neon);
   }
 
   // Dach in Zentrumsnähe mit passender Höhe – Startpunkt für den Spieler.
@@ -753,18 +1087,23 @@ if (bKind < 0.5) {
   float ao = mix(0.45, 1.0, smoothstep(0.0, 40.0, vFac.y));
   diffuseColor.rgb = mix(diffuseColor.rgb * ao, gcol, win);
 } else if (bKind < 1.5) {
-  diffuseColor.rgb *= 0.5 + 0.12 * hash12(floor(vFac * 0.5));
+  diffuseColor.rgb *= (0.5 + 0.12 * hash12(floor(vFac * 0.5))) * (1.0 - 0.4 * uWet);
 }
 `;
 
-// Fenster leuchten (warm, vereinzelt Neon-Cyan/Pink) oder spiegeln den Abendhimmel.
+// Fenster leuchten (warm, vereinzelt Neon-Cyan/Pink) oder spiegeln den Himmel: dunkles Glas, aber kein Spiegel – die
+// Glastürme (Stil 0) etwas stärker, dazu ein Sonnenglanz auf den Scheiben. Bei Regen glänzen die Dächer nass.
 const WINDOW_EMISSIVE_GLSL = /* glsl */ `
 totalEmissiveRadiance += bLitCol * bLit * uLit;
 {
   vec3 vdirV = normalize(vViewPosition);
   vec3 rw = transpose(mat3(viewMatrix)) * reflect(-vdirV, normal);
-  float fres = pow(1.0 - max(dot(vdirV, normal), 0.0), 3.0);
-  totalEmissiveRadiance += duskSky(rw) * bWin * (1.0 - min(1.0, bLit * 2.0)) * (0.1 + 0.6 * fres) * uReflect;
+  float fres = pow(clamp(1.0 - dot(vdirV, normal), 0.0, 1.0), 3.0); // geklemmt: pow einer negativen Basis = NaN
+  // nur ein Fenster, dessen Licht gerade wirklich brennt, spiegelt nicht – tagsüber spiegeln alle
+  float glass = bWin * (1.0 - min(1.0, bLit * uLit * 1.8)) * (bStyle < 0.5 ? 1.35 : 1.0) * uReflect;
+  totalEmissiveRadiance += duskSky(rw) * glass * (0.22 + 0.65 * fres);
+  totalEmissiveRadiance += DUSK_SUN * pow(max(dot(rw, DUSK_SUN_DIR), 0.0), 160.0) * 2.2 * uSunUp * glass;
+  if (bKind > 0.5 && bKind < 1.5) totalEmissiveRadiance += duskSky(rw) * uWet * (0.14 + 0.6 * fres);
 }
 `;
 
@@ -772,32 +1111,65 @@ function createBuildingMaterial() {
   const mat = new THREE.MeshToonMaterial({ vertexColors: true, gradientMap: gradientMap([0.4, 0.72, 1.0]) });
   const uLit = { value: 1.15 };
   const uReflect = { value: 1.0 };
+  const uWet = { value: 0 };
   mat.userData.uLit = uLit;
   mat.userData.uReflect = uReflect;
+  mat.userData.uWet = uWet;
+  // Hyper-Realistic-Mode: Der PBR-Zwilling (realism.js) nutzt denselben Hook – unter STANDARD rechnet facade.js
+  // echte Fassadenmaterialien, Rauheit, Metall, Reflexionsgrad und Relief, sonst bleibt der Cel-Look
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uLit = uLit;
     shader.uniforms.uReflect = uReflect;
+    shader.uniforms.uWet = uWet;
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', `#include <common>
 attribute vec2 aFac;
 attribute vec4 aInfo;
 varying vec2 vFac;
-varying vec4 vInfo;`)
+varying vec4 vInfo;
+#ifdef STANDARD
+varying vec3 vBWorld;
+#endif`)
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 vFac = aFac;
-vInfo = aInfo;`);
+vInfo = aInfo;
+#ifdef STANDARD
+vBWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;
+#endif`);
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', `#include <common>
 uniform float uLit;
 uniform float uReflect;
+uniform float uWet;
 varying vec2 vFac;
 varying vec4 vInfo;
 ${DUSK_GLSL}
-float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }`)
+float hash12(vec2 p) { vec3 p3 = fract(vec3(p.xyx) * 0.1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+#ifdef STANDARD
+${FACADE_PARS}
+#endif`)
       .replace('#include <color_fragment>', `#include <color_fragment>
-${WINDOW_GLSL}`)
+#ifdef STANDARD
+${FACADE_COLOR}
+#else
+${WINDOW_GLSL}
+#endif`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+roughnessFactor = bRough;`)
+      .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+metalnessFactor = bMetal;`)
+      .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
+#ifdef STANDARD
+normal = normalize((viewMatrix * vec4(bNw, 0.0)).xyz);
+#endif`)
+      .replace('#include <lights_physical_fragment>', `#include <lights_physical_fragment>
+material.specularColor = mix(material.specularColor, vec3(bF0), bWin);`)
       .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-${WINDOW_EMISSIVE_GLSL}`);
+#ifdef STANDARD
+totalEmissiveRadiance += bEmit;
+#else
+${WINDOW_EMISSIVE_GLSL}
+#endif`);
   };
   return mat;
 }
@@ -836,6 +1208,11 @@ function glyphTexture(w, h) {
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
   return tex;
+}
+
+// Neonfarbe für die Schilder auf Straßenhöhe (eigener Zufall: der Verlauf des Stadt-Zufalls bleibt unverändert)
+function neon2(r) {
+  return new THREE.Color(NEON[Math.floor(r() * NEON.length)]);
 }
 
 // weicher Lichtkegel für die Laternen

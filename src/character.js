@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import { toonMaterial, outlineMaterial } from './toon.js';
+import { toonMaterial, outlineMaterial, CHAR_ANIME } from './toon.js';
 import { createClips, GAITS, JOINTS, STUMBLE } from './animations.js';
+import { createIdleClips, IDLES } from './idles.js';
 import { Inertializer, LimbSpring, ArmAim } from './motion.js';
 import { BASE_B, AP, PartBuilder } from './charkit.js';
 import { getDesign } from './designs/index.js';
@@ -12,8 +13,39 @@ import { CONFIG } from './config.js';
 const ONE_SHOTS = ['jump', 'land', 'landHard', 'flip', 'dash', 'stop', 'pivot'];
 // Bewegungen nach schnellem Aufkommen: Clip-Zeit folgt dem Fortschritt in der Physik (Player.landMove)
 const TIMED = { roll: 'rollTime', rollUp: 'rollTime', rise: 'riseTime', stumble: 'stumbleTime' };
+// an der Kante: Clip-Zeit folgt dem Fortschritt in Player.perch
+const PERCH_TIMED = ['climb', 'sitDown', 'standUp', 'hop'];
 const STUMBLE_STEPS = STUMBLE.contacts.slice(1).map((c) => c / STUMBLE.dur);
 const GAIT_ORDER = ['walk', 'jog', 'sprint'];
+// Hyper-Realistic-Mode: ein Hauch Anime auf den Figuren (Einstellung, Standard an). Das direkte Licht bekommt eine weiche
+// Schattenkante statt des runden Knet-Verlaufs, das Umgebungslicht hellt die Schattenseite etwas auf, der Glanz wird
+// zurückgenommen und am Umriss liegt ein feines Randlicht. Die Schattenwürfe bleiben erhalten (Verhältnis auf das
+// berechnete Licht, kein neues Licht).
+function charAnimeHook(shader) {
+  shader.uniforms.uCharAnime = CHAR_ANIME;
+  shader.fragmentShader = shader.fragmentShader
+    .replace('#include <common>', '#include <common>\nuniform float uCharAnime;')
+    .replace('#include <lights_fragment_end>', `#include <lights_fragment_end>
+#if NUM_DIR_LIGHTS > 0
+if (uCharAnime > 0.5) {
+  float plain = 0.0, cel = 0.0;
+  for (int i = 0; i < NUM_DIR_LIGHTS; i++) {
+    float L = dot(directionalLights[i].color, vec3(0.2126, 0.7152, 0.0722));
+    float ndl = clamp(dot(normal, directionalLights[i].direction), 0.0, 1.0);
+    plain += L * ndl;
+    cel += L * mix(ndl, smoothstep(0.03, 0.17, ndl) * (0.74 + 0.26 * ndl), 0.62);
+  }
+  reflectedLight.directDiffuse *= cel / max(plain, 1e-3);
+  reflectedLight.directSpecular *= 0.5;
+  reflectedLight.indirectSpecular *= 0.45; // kein grauer Schleier auf dunklem Stoff
+  reflectedLight.indirectDiffuse = reflectedLight.indirectDiffuse * 1.18 + vec3(0.016, 0.017, 0.022) * diffuseColor.rgb; // nachts nie ganz im Dunkeln
+  float rimF = 1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+  reflectedLight.indirectDiffuse += reflectedLight.indirectDiffuse * smoothstep(0.62, 0.92, rimF) * 0.7;
+}
+#endif`);
+}
+// Figurenmaterialien als Stoff: weicher Faserglanz am Rand (Sheen), matt-seidige Rauheit
+const CHAR_PBR = { physical: true, roughness: 0.66, sheen: 0.22, sheenRoughness: 0.6, sheenColor: '#ffffff', hook: charAnimeHook, key: 'char-anime' };
 
 const _m = new THREE.Matrix4();
 const _q = new THREE.Quaternion();
@@ -43,7 +75,8 @@ export class Character {
     this.build();
 
     this.mixer = new THREE.AnimationMixer(this.root);
-    this.clips = createClips(-CONFIG.player.halfHeight);
+    this.clips = { ...createClips(-CONFIG.player.halfHeight), ...createIdleClips(this.design.id, -CONFIG.player.halfHeight) };
+    this.idleSet = IDLES[this.design.id] ?? [];
     this.actions = {};
     this.weights = {};
     for (const [name, clip] of Object.entries(this.clips)) {
@@ -52,7 +85,7 @@ export class Character {
         a.setLoop(THREE.LoopOnce, 1);
         a.clampWhenFinished = true;
       }
-      if (GAIT_ORDER.includes(name) || name === 'swing' || TIMED[name]) a.setEffectiveTimeScale(0); // Phase wird von außen gesteuert
+      if (GAIT_ORDER.includes(name) || name === 'swing' || name === 'shimmy' || TIMED[name] || PERCH_TIMED.includes(name) || this.idleSet.includes(name)) a.setEffectiveTimeScale(0); // Phase wird von außen gesteuert
       a.setEffectiveWeight(name === 'idle' ? 1 : 0);
       a.play();
       this.actions[name] = a;
@@ -60,6 +93,7 @@ export class Character {
     }
     this.oneShot = null;
     this.oneShotTime = 0;
+    this.fidget = { name: null, t: 0, calm: 0, wait: 4 + Math.random() * 2, idx: 0 }; // Idle-Eigenheit im Stand
     this.phase = 0;
     this.locoMove = 0;
     this.steps = [];
@@ -117,7 +151,7 @@ export class Character {
     const mats = new Map();
     const mat = (color, opts = {}) => {
       const key = color + JSON.stringify(opts, (k, v) => (v && v.isTexture ? v.uuid : v));
-      if (!mats.has(key)) mats.set(key, toonMaterial(color, opts));
+      if (!mats.has(key)) mats.set(key, toonMaterial(color, { pbr: CHAR_PBR, ...opts }));
       return mats.get(key);
     };
     const node = (name, parent, x, y, z, bone = true) => {
@@ -291,7 +325,7 @@ export class Character {
     return { w, stride };
   }
 
-  // info: { state, speed, hspeed, vy, swinging, reeling, gliding, boosting, turnRate, events, lookDir }
+  // info: { state, speed, hspeed, vy, swinging, reeling, gliding, boosting, turnRate, surfBank (−1…1), events, lookDir }
   update(dt, info) {
     this.time += dt;
     this.steps.length = 0;
@@ -321,7 +355,29 @@ export class Character {
     }
 
     const M = info.state === 'ground' ? info.move : null;
-    if (M) this.oneShot = null;
+    const Pm = info.perch ?? null;
+    if (M || Pm || info.state === 'grind') this.oneShot = null;
+
+    // Eigenheiten im Stand: nach ein paar ruhigen Sekunden abwechselnd die zwei Idles der Figur (idles.js)
+    const F = this.fidget;
+    const calm = info.state === 'ground' && !M && !this.oneShot && info.hspeed < 0.05 && this.idleSet.length > 0;
+    if (!calm) {
+      F.name = null;
+      F.calm = 0;
+      F.wait = 4 + Math.random() * 2;
+    } else {
+      F.calm += dt;
+      if (F.name) {
+        F.t += dt;
+        if (F.t >= this.clips[F.name].duration) {
+          F.name = null;
+          F.wait = F.calm + 6 + Math.random() * 6;
+        }
+      } else if (F.calm > F.wait) {
+        F.name = this.idleSet[F.idx++ % this.idleSet.length];
+        F.t = 0;
+      }
+    }
 
     // Zielgewichte aller Clips (summieren sich zu 1)
     const T = {};
@@ -333,12 +389,21 @@ export class Character {
         // gleicher Anfang, zwei Enden: Taste gehalten → auf der Hüfte bleiben (Slide), sonst über das Knie hoch
         T.roll = M.held ?? 1;
         T.rollUp = 1 - T.roll;
+      } else if (M?.type === 'surf') {
+        // Schräglage in Kurven: Arme und inneres Knie aus den Kurvenposen dazumischen (gleicher Takt, laufen synchron)
+        const b = clamp(info.surfBank ?? 0, -1, 1);
+        T.surf = 1 - Math.abs(b);
+        T[b > 0 ? 'surfL' : 'surfR'] = Math.abs(b);
       } else if (M) T[M.type] = 1;
       else {
-        T.idle = 1 - moveMix;
+        T[F.name ?? 'idle'] = 1 - moveMix;
         for (const n of GAIT_ORDER) T[n] = moveMix * gait.w[n];
       }
-    } else if (info.state === 'wallrun') T.wallrun = 1;
+    } else if (Pm) {
+      if (Pm.type === 'hang') T[Pm.moving ? 'shimmy' : 'hang'] = 1;
+      else T[Pm.type] = 1;
+    } else if (info.state === 'grind') T.grind = 1;
+    else if (info.state === 'wallrun') T.wallrun = 1;
     else if (info.gliding) T.glide = 1;
     else if (info.swinging) T[info.reeling ? 'reel' : 'swing'] = 1;
     else if (info.boosting) T.boost = 1;
@@ -352,6 +417,7 @@ export class Character {
     for (const [n, w] of Object.entries(T)) if (w > leadW) { lead = n; leadW = w; }
     if (lead === 'idle' || GAIT_ORDER.includes(lead)) lead = 'loco';
     if (lead === 'rollUp') lead = 'roll';
+    if (lead === 'surfL' || lead === 'surfR') lead = 'surf';
     // Die Gewichte springen dabei direkt auf die neue Pose; den weichen Weg dorthin übernimmt allein
     // die Überblendung (eine zusätzliche Kreuzblende würde am Anfang wieder einen Ruck erzeugen).
     const key = `${info.state}|${lead}`;
@@ -365,6 +431,13 @@ export class Character {
       else if (lead === 'slide') dur = prevLead === 'roll' ? 0.2 : 0.24;
       else if (lead === 'rise' || lead === 'stumble') dur = 0.12;
       else if (prevLead === 'rise' || prevLead === 'stumble') dur = 0.26;
+      // Kante: Greifen fängt weich ab, die Abläufe dort beginnen jeweils in der Pose, in der der vorige endet
+      else if (lead === 'hang' || lead === 'shimmy') dur = prevLead === 'hang' || prevLead === 'shimmy' ? 0.22 : 0.16;
+      else if (lead === 'sitDown') dur = 0.3;
+      else if (PERCH_TIMED.includes(lead) || lead === 'sit') dur = 0.1;
+      else if (prevLead === 'climb' || prevLead === 'standUp') dur = 0.2;
+      else if (prevLead === 'hop') dur = 0.16;
+      else if (lead === 'grind') dur = 0.14; // auf die Schiene: schnell in die Balance
       this.inert.trigger(dur);
       this.poseKey = key;
       k = 1;
@@ -384,6 +457,9 @@ export class Character {
       if (M.type === 'stumble') for (const s of STUMBLE_STEPS) if (this.moveU < s && u >= s) this.steps.push(0.75);
       this.moveU = u;
     } else this.moveU = 0;
+    if (Pm && PERCH_TIMED.includes(Pm.type)) this.actions[Pm.type].time = clamp(Pm.t / Pm.dur, 0, 0.999) * this.clips[Pm.type].duration;
+    if (Pm?.type === 'hang') this.actions.shimmy.time = Pm.phase * this.clips.shimmy.duration;
+    if (F.name) this.actions[F.name].time = Math.min(F.t, this.clips[F.name].duration - 0.001);
 
     // Gang-Phase: alle Zyklen laufen synchron, Kadenz = Tempo / Schrittlänge (keine rutschenden Füße)
     const prev = this.phase;
@@ -426,7 +502,8 @@ export class Character {
     const J = this.joints;
     let target = 0;
     if (this.oneShot === 'flip' || this.oneShot === 'landHard' || this.oneShot === 'pivot') target = 0;
-    else if (info.state === 'ground') target = 0;
+    else if (info.state === 'ground' || info.state === 'sit') target = 0;
+    else if (info.state === 'ledge') target = 0.35; // hängende Beine schwingen etwas nach
     else if (info.state === 'wallrun') target = 0.25;
     else if (info.swinging) target = info.reeling ? 0.6 : 1;
     else if (info.gliding) target = 0.3;
@@ -471,7 +548,8 @@ export class Character {
     }
 
     // Blick in Zielrichtung – nur am Boden und ruhig, nie verdreht
-    const lw = ground && !this.oneShot ? 1 - clamp(info.hspeed / 6, 0, 0.8) : 0;
+    // während einer Idle-Eigenheit bewegt sie den Kopf selbst – der Blick folgt der Kamera dann kaum
+    const lw = (ground || info.perch?.type === 'sit') && !this.oneShot ? (1 - clamp(info.hspeed / 6, 0, 0.8)) * (this.fidget.name ? 0.15 : 1) : 0;
     this.look.w += (lw - this.look.w) * (1 - Math.exp(-5 * dt));
     let ty = 0, tp = 0;
     if (info.lookDir && this.look.w > 0.01) {

@@ -3,6 +3,109 @@
 All notable changes to this project. The format is based on
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), versioning follows [SemVer](https://semver.org/).
 
+## [0.8.0] – 2026-10-30
+
+The biggest update so far. The island grows and fills up with landmarks to swing through, the city gets weather and a
+full day–night cycle, movement gets grinding, ledges, surfing, sitting and wind columns, the game gets a settings menu
+and a photo mode – and a new Hyper-Realistic Mode renders everything with physically based materials under a real sky.
+
+### Added
+
+#### Hyper-Realistic Mode
+A second way to see the game (Settings → Graphics, off by default). No cel shading and no ink lines in the world,
+physically based rendering instead – switching it off brings back the cel look exactly as it was.
+- **Materials:** every toon material gets a physically based twin (roughness, metalness, clear-coated car paint, metal
+  rails).
+- **A sky that lights the scene:** physical sky (Rayleigh and Mie scattering) as image-based lighting, with night sky,
+  overcast and rain.
+- **Every time of day has its own mood:** the evening burns orange with a low sun, violet sky, glowing clouds and the
+  sun glittering across the water in a long path; the morning is pastel and misty with peach light over the haze; noon
+  is crisp and blue; the night belongs to windows, neon and stars. A color grade follows along.
+- **Rainy nights:** wet streets mirror the city in real time – neon signs, street lamps and lit windows reflected in the
+  asphalt, raindrop rings in the puddles, colored light from the signs on the ground.
+- **Facades:** glass curtain walls with mullions and slightly uneven panes, concrete panels with joints and dirt
+  streaks, brick and plaster; recessed windows with frames, sills, blinds and curtains, and furnished rooms behind the
+  glass (interior mapping) that light up at night.
+- **Ground and plants:** paving slabs, asphalt with patches and cracks, worn road markings, grass, gravel paths, sand;
+  roofs of bitumen and gravel; leafy tree crowns and bark.
+- **Water:** the sea mirrors the city, with dispersive waves and sun and moon glitter. The bow wave becomes a sheet of
+  clear, translucent water in the color of the sea, with sky and sun in its reflection and foam only along the crest.
+- **Characters keep a touch of anime:** fine outlines and a soft shadow edge, so they stay anime figures in a realistic
+  world (Settings → Graphics, on by default).
+- 4× MSAA, depth-based ambient occlusion, a sun shadow that reaches twice as far, eye adaptation, AgX tone mapping,
+  film grain and vignette.
+
+#### World
+- **The island is bigger** (radius 410 → 500 m), so the new landmarks fit into the outskirts; 200 instead of 150 cars and
+  buses.
+- **Lighthouse island:** a rock massif of its own off the coast – cliffs, broken rock, lichen, a dark wet tidal zone and
+  surf around it, grass on top. A red-and-white lighthouse with gallery and lantern room whose beam sweeps the sea at
+  night, a keeper's house, a rock path with wooden steps and rope rails, a jetty and a rowing boat. You walk exactly on
+  the rock you see; everything too steep acts as a wall.
+- **Harbor:** a quay with container stacks and three gantry cranes, moles, and a bascule bridge that opens for the
+  freighter – stand on it at the wrong moment and it catapults you out.
+- **Container ships** sail wide loops around the island: flared hulls with a raked bow and forecastle, rails, hatch covers
+  and lashing bridges, a stepped superstructure with lit windows, bridge wings, mast and radar, funnel with company colors,
+  lifeboats, and their names on bow and stern. The 40-foot containers have corrugated sides, door ends with locking rods,
+  logos, numbers, rust and dirt. Land on them and run across the stacks – collision follows every single stack.
+- **Amusement pier:** Ferris wheel, roller coaster (ride the train or grind the track), carousel with detailed horses,
+  swing ride, pirate ship, drop tower, bumper cars, a helter-skelter slide, kiosks and game booths, festoon lights and
+  palms – with three giant parade balloons (star, cat, whale) tethered above the fair.
+- **Downtown:** a mega tower in the center, a construction skyscraper with an open steel frame and tower cranes whose jibs
+  turn (hook on and get carried along), a neon tube around the elevated train that is big enough to glide through, a tower
+  with a huge hole, neon rings around a few blocks as grind routes and a canal at street level, crossed by flat bridges.
+  Neon signs and shop signs now line the streets at eye level.
+- **Outskirts:** a stadium with a grindable roof ring, a giant tree in a park, wind turbines on the coast and in the parks
+  (the blades are moving anchors) and an airship with a landing deck circling high above.
+- **Time of day:** morning, noon and evening – sun and moon, sky colors, light, haze, window lights, street lamps, neon and
+  stars follow the hour, and every change blends smoothly. Optional **day–night cycle**: a whole day including the night in a
+  little over 7 minutes.
+- **Weather:** clear, cloudy (denser clouds, softer grey light) and rain (rain streaks, darker and hazier light, wet streets
+  that mirror the city; afterwards the streets dry slowly). Works with every time of day.
+- **Life in the city:** bird flocks on roofs, squares, the beach and in parks take off when you come close and land again
+  later; about 150 pedestrians walk the sidewalks, the promenade, the canal, the fair and the parks.
+
+#### Movement
+- **Grinding:** land on the viaduct rails and parapets, power lines between towers, the roller-coaster track, the pier's
+  spiral slide, neon tubes, the stadium roof ring, the edge beams of the construction tower or the branches of the giant tree
+  – faster downhill, slower uphill; Space jumps off, obstacles make the character jump in time.
+- **Ledges:** while falling, the character grabs a roof edge at chest to head height. A / D shimmy along it, W / Space climb
+  up, S lets go, S + Space pushes off.
+- **Sitting:** standing still (or tapping Ctrl) sits the character down – on roof edges and cliffs with the legs dangling, on
+  the harbor quay with the feet above the water, on benches and stools at the fair. With smooth transitions from standing, back
+  up and straight into a jump.
+- **On the water:** Shift with momentum sprints across the water (costs gas); hitting the water faster than you can run turns
+  into surfing, steerable like on skis – with two big bow waves and a V-shaped wake in the style of The Legend of Zelda: The
+  Wind Waker.
+- **Roof fans and wind columns:** fans on flat roofs below 40 m launch you upward. The rising wind streams show how far their
+  column reaches – glide into one and it throws you up about 30 meters, and you keep gliding.
+- **Flow:** a meter that fills while you move fast and cleanly – perfect moments, wall runs and wall jumps, ledge climbs,
+  rolls, landing on water, hooking in at full speed – and drains when you stall or stumble. Three tiers: each refills gas
+  faster, at tier 3 the gas boost costs half.
+- **Perfect moments:** a perfect release from the rope, a last-second save just above the ground or a near miss past a building
+  edge slows time down for a moment – the camera moves in on the character and the image glitches (red/cyan split, shifted
+  slices). Can be turned off.
+- **Idle animations:** standing still, every character plays one of two idles that fit their personality (Zero taps her foot
+  with folded arms, Makoto Yuki nods along to his music, Steve mines and sneaks, …).
+- **Wall-run camera tilt:** the camera leans away from the wall during a wall run.
+- **Aim assist** (Settings → Controls, off by default): narrowly missing a building still hooks it.
+
+#### Game
+- **Settings menu** (Esc, tabs Controls / Character / Settings): render resolution, shadow quality, ink lines, bloom, field of
+  view, window and water reflections, speed lines, Hyper-Realistic Mode, camera shake and an FPS counter; master and effects
+  volume; time of day, day–night cycle and weather; mouse sensitivity, invert Y and aim assist; perfect-moment slow motion, its
+  glitch effect and flow. Settings are saved in the browser.
+- **Photo mode** (F or menu): time stops, a free camera flies around the character (on a leash, never through buildings), the HUD
+  disappears. Five looks (Standard, Manga, Glitch, Abendrot, Nachtblau), the character can be hidden, photos are saved to
+  `screenshots/`.
+- New sounds: rain, water, grinding, roof-fan launch, bird flocks, the bascule bridge bell, splashes, flow tiers and perfect
+  moments.
+
+### Changed
+- Starting the game captures the mouse without switching to fullscreen; the browser asks before leaving the page mid-game.
+- The start screen and the pause menu have tabs for controls, character and settings.
+- The HUD shows the flow meter above the speed and, optionally, the frame rate; the hint line lists Esc and F.
+
 ## [0.7.0] – 2026-10-29
 
 Landing at speed is now part of the flow: a shoulder roll into a fast slide or into a stumble, a real slide when the

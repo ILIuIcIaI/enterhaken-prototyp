@@ -5,7 +5,7 @@ import { pondRadius } from './terrain.js';
 // Bodenplan als Textur über die ganze Insel. Kodierung (wird im Boden-Shader zerlegt):
 //   m = min(R, G, B) = Markierung (weiß), R − m = Asphalt, G − m = Rasen, B − m = helle Wege/Plätze,
 //   alles 0 = Stadtpflaster/Gehweg. Strand, Promenade und Meeresgrund kommen analytisch aus dem Shader.
-export const MAP_EXT = 560; // halbe Kantenlänge in Metern
+export const MAP_EXT = 690; // halbe Kantenlänge in Metern (Insel bis ≈ 650 m Radius)
 
 export function drawGroundMap(city, size) {
   const c = document.createElement('canvas');
@@ -20,6 +20,9 @@ export function drawGroundMap(city, size) {
   g.fillRect(-MAP_EXT, -MAP_EXT, MAP_EXT * 2, MAP_EXT * 2);
   g.fillStyle = PAVE;
   for (const b of city.blockList) if (!b.super && b.built) g.fillRect(b.x0, b.z0, b.x1 - b.x0, b.z1 - b.z0);
+  // Kanal: Uferwege gepflastert (das Wasser schneidet der Boden-Shader aus, die Brücken malen die Querstraßen)
+  const cn = city.canal;
+  if (cn) g.fillRect(cn.x - cn.half, cn.z0, cn.half * 2, cn.z1 - cn.z0);
   for (const b of city.plazas) {
     g.fillStyle = PATH;
     g.fillRect(b.x0 + 1, b.z0 + 1, b.x1 - b.x0 - 2, b.z1 - b.z0 - 2);

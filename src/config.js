@@ -49,6 +49,56 @@ export const CONFIG = {
     riseTime: 0.34,       // Aufstehen aus dem Slide in den Lauf
     stumbleTime: 1.45,    // Stolpern (Ausfallschritte) bis zum Stand – Tempoverlauf in animations.js (STUMBLE)
   },
+  // Wasser (nach Marvel's Spider-Man 2: im Gleitflug aufs Wasser = surfen, nur solange der Schwung reicht)
+  water: {
+    surfMin: 8,           // so schnell beim Aufkommen auf tiefem Wasser → surfen statt einsinken (m/s)
+    surfExit: 6.5,        // darunter sinkt man ein
+    surfFriction: 1.4,    // Wasserwiderstand beim Surfen (m/s²) …
+    surfDrag: 0.025,      // … plus je m/s
+    surfSteer: 1.8,       // Lenken beim Surfen (rad/s)
+    surfCruise: 13,       // W gehalten: so schnell bleibt man (wie in Spider-Man 2: oben bleibt, wer den Schwung hält)
+    surfHold: 2.5,        // … dorthin wird beschleunigt bzw. gebremst (m/s²)
+    runMin: 6.5,          // Wassersprint (Shift): ab diesem Tempo trägt die Oberfläche
+    runCost: 9,           // Gas pro Sekunde
+  },
+  // Kanten: greifen und hochziehen, hangeln, auf Dachkanten sitzen
+  ledge: {
+    grabLow: 0.05,        // Dachkante so weit über der Körpermitte …
+    grabHigh: 1.3,        // … bis so weit (m) – dann greift die Figur zu (im Fallen oder kurz vor dem Scheitel)
+    hangDrop: 1.2,        // Körpermitte beim Hängen unter der Kante (die Hände liegen oben auf)
+    climbTime: 0.78,      // Hochziehen bis zum Stand (s)
+    shimmySpeed: 1.4,     // Hangeln an der Kante (m/s)
+    kickOut: 7,           // S + Leertaste: von der Wand abstoßen
+    kickUp: 6.5,
+    sitDelay: 2.2,        // so lange ruhig an einer Dachkante stehen, dann setzt sie sich (Strg: sofort)
+    sitDownTime: 1.0,
+    standUpTime: 0.8,
+    hopTime: 0.3,         // Abspringen aus dem Sitzen
+    hopSpeed: 6.5,
+    hopUp: 3.2,
+  },
+  // Grinden auf Schienen, Brüstungen und Kabeln (grind.js): aus der Luft daraufsetzen, Leertaste = abspringen
+  grind: {
+    capture: 0.8,         // so nah (waagrecht, m) müssen die Füße an der Linie sein
+    minSpeed: 6,          // darunter (entlang der Linie) rastet man nicht ein
+    keep: 1.0,            // Anteil des Tempos entlang der Linie beim Aufsetzen
+    boost: 2,             // kleiner Schub beim Aufsetzen (m/s)
+    friction: 1.2,        // Reibung (m/s²) – bergab wird man trotzdem schneller
+    drag: 0.0015,         // Luftwiderstand je (m/s)²
+    exitSpeed: 2.5,       // darunter rutscht man herunter
+    jumpUp: 9,            // Absprung nach oben (m/s)
+    cooldown: 0.35,       // nach dem Verlassen so lange kein neues Einrasten
+  },
+  // Lüfter auf den Dächern unter 40 m (city.js, fans.js)
+  fan: {
+    launch: 27,           // wer darauf landet oder läuft, fliegt mit so viel Tempo nach oben (≈ 23 m hoch)
+    radius: 1.7,          // waagrecht so nah an der Mitte
+    column: 5.5,          // Windsäule: so weit reichen die sichtbaren Windlinien zur Seite (m) …
+    height: 48,           // … und so hoch über den Lüfter
+    gust: 80,             // mit dem Gleiter hinein: Schub nach oben (m/s²) …
+    gustSpeed: 26,        // … bis zu diesem Steigtempo (m/s) – reicht für rund 30 Höhenmeter
+    updraft: 10,          // ohne Gleiter bremst die Säule nur den Fall (m/s², nimmt nach oben ab)
+  },
   dash: {
     speed: 22,            // zusätzliche Geschwindigkeit in Blickrichtung
     keep: 0.7,            // Anteil der bisherigen Geschwindigkeit in Dash-Richtung
@@ -90,6 +140,8 @@ export const CONFIG = {
     retractSpeed: 10,
     releaseBoost: 3,      // kleiner Schwung in Flugrichtung beim Loslassen
     wrap: true,           // Seil wickelt sich um Gebäudekanten
+    aimAssist: false,     // Zielhilfe: knapp an einem Gebäude vorbeigezielt zählt trotzdem (Einstellungen, Standard aus)
+    assistAngle: 2.5,     // … bis zu diesem Winkel neben dem Fadenkreuz (Grad)
   },
   gas: {
     max: 100,
@@ -127,17 +179,27 @@ export const CONFIG = {
     height: 1.0,
     sensitivity: 0.0022,
     invertY: false,
+    shake: true,          // Kamerawackeln bei Aufprall, Dash …
   },
   world: {
     seed: 1337,
     timeScale: 1,
-    fullscreen: true,     // Vollbild + Tastatursperre, damit Strg-Kombinationen den Tab nicht schließen
+    fullscreen: false,    // beim Start zusätzlich Vollbild + Tastatursperre (blockt Strg+W); Standard: nur Maus fangen
   },
   graphics: {
     ink: 1,               // Stärke der Tuschelinien
     bloom: 0.45,
     exposure: 1.05,
     saturation: 1.12,
+    speedlines: true,     // Tempolinien am Bildrand
+    fps: false,           // Bildrate anzeigen
+    windowReflections: true, // Fenster spiegeln den Himmel
+    waterReflections: true,  // nasse Straßen und Pfützen spiegeln die Stadt (sonst nur den Himmel)
+  },
+  gameplay: {
+    perfectSlowmo: true,  // kurze Zeitlupe bei perfekten Momenten (Einstellungen)
+    glitch: true,         // dabei Glitch-Effekt (Farbversatz, Bildstreifen)
+    flow: true,           // Flow-Leiste: schnell und sauber unterwegs = Gas lädt schneller nach (flow.js)
   },
 };
 

@@ -3,7 +3,7 @@
 // damit Physik, Mesh und Wassertiefe exakt zusammenpassen.
 
 export const WATER_Y = -2.0; // Meeresspiegel
-const WALL_D = -37.4; // Ufermauer zwischen Promenade und Strand (Küstenabstand)
+export const WALL_D = -37.4; // Ufermauer zwischen Promenade und Strand (Küstenabstand)
 const WALL_H = 0.6;
 const CELL = 40;
 
@@ -34,6 +34,13 @@ float beachHeight(float d) {
   return ${WATER_Y.toFixed(2)} - 13.0 * (1.0 - exp(-d / 32.0));
 }`;
 
+// Meereswellen wie im Wasser-Shader (world.js, WAVES_GLSL): vier Gerstner-Wellen plus Brandung vor dem Strand.
+// Die Physik nutzt sie beim Surfen und beim Sprint über das Wasser, damit man auf den Wellen reitet.
+const WAVES = [[0.9, 0.44, 48, 0.32], [-0.3, 0.95, 27, 0.18], [0.7, -0.7, 15, 0.09], [-0.85, -0.5, 8.5, 0.045]].map(([x, z, L, A]) => {
+  const n = Math.hypot(x, z), k = 6.2831 / L;
+  return { x: x / n, z: z / n, k, A, c: Math.sqrt(9.81 / k), q: 0.55 / (4 * k) };
+});
+
 // Teich: organische Uferlinie r(θ) = R · (1 + Σ a·sin(kθ + p))
 export function pondRadius(p, th) {
   let r = 1;
@@ -47,6 +54,15 @@ export class Terrain {
     this.bumps = []; // { x, z, r, h }
     this.ponds = []; // { x, z, R, a, p, level, depth }
     this.grid = new Map();
+    this.waveTime = 0; // Uhr der Wellen (= Shader-Zeit, setzt main.js je Bild)
+    this.canal = null; // Kanal durch die Innenstadt (citygen.js): { x, z0, z1, hw, wall, level, bottom }
+    this.rock = null;  // Felsinsel (rock.js) – hat ein eigenes Mesh, gehört also nicht ins Bodennetz
+  }
+
+  // im Kanalbett (zwischen den Kaimauern, auch unter den Brücken)?
+  inCanal(x, z, pad = 0) {
+    const c = this.canal;
+    return !!c && Math.abs(x - c.x) < c.hw + pad && z > c.z0 - pad && z < c.z1 + pad;
   }
 
   key(ix, iz) {
@@ -84,8 +100,11 @@ export class Terrain {
     return Math.hypot(dx, dz) / pondRadius(p, Math.atan2(dz, dx));
   }
 
-  height(x, z) {
+  // noCanal: Oberfläche ohne Kanalbett (für das Bodennetz – den Kanal schneidet der Boden-Shader sauber aus)
+  height(x, z, noCanal = false) {
+    if (!noCanal && this.inCanal(x, z)) return this.canal.bottom;
     let h = beachHeight(this.coastDist(x, z));
+    if (!noCanal && this.rock) h = Math.max(h, this.rock.height(x, z));
     const c = this.cell(x, z);
     if (!c) return h;
     for (const b of c.b) {
@@ -110,7 +129,37 @@ export class Terrain {
   // Wasserspiegel an dieser Stelle (-Infinity, wenn kein Wasser)
   waterLevel(x, z) {
     if (this.coastDist(x, z) > -6) return WATER_Y;
+    if (this.inCanal(x, z)) return this.canal.level;
     const p = this.pondAt(x, z);
     return p ? p.level : -Infinity;
+  }
+
+  // Höhe der bewegten Meeresoberfläche (wie im Shader; Gerstner-Wellen verschieben auch seitlich, darum wird
+  // der Ausgangspunkt gesucht, der an (x, z) landet)
+  seaY(x, z) {
+    const t = this.waveTime, d = this.coastDist(x, z);
+    const depth = WATER_Y - beachHeight(d);
+    const amp = 0.3 + 0.7 * smooth(0, 7, depth);
+    const shore = smooth(60, 8, d) * smooth(-1, 1.5, depth);
+    let px = x, pz = z;
+    for (let it = 0; it < 3; it++) {
+      let dx = 0, dz = 0;
+      for (const w of WAVES) {
+        const c = Math.cos(w.k * (w.x * px + w.z * pz - w.c * t)) * w.q * amp;
+        dx += c * w.x;
+        dz += c * w.z;
+      }
+      px = x - dx;
+      pz = z - dz;
+    }
+    let y = 0.16 * shore * Math.sin((6.2831 / 14) * d + t * 1.7);
+    for (const w of WAVES) y += w.A * amp * Math.sin(w.k * (w.x * px + w.z * pz - w.c * t));
+    return WATER_Y + y;
+  }
+
+  // Wasseroberfläche mit Wellen (Meer) bzw. ruhig (Teich); -Infinity ohne Wasser
+  surfaceY(x, z) {
+    const w = this.waterLevel(x, z);
+    return w === WATER_Y && this.coastDist(x, z) > -6 ? this.seaY(x, z) : w;
   }
 }

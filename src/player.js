@@ -27,6 +27,21 @@ const _rt = new THREE.Vector3();
 const _mq = new THREE.Quaternion();
 const _ml = new THREE.Vector3();
 const _mp = new THREE.Vector3();
+const DOWN = new THREE.Vector3(0, -1, 0);
+const _pe = new THREE.Vector3();
+const _ps = new THREE.Vector3();
+const _pf = new THREE.Vector3();
+const _pq = new THREE.Vector3();
+const _gf = new THREE.Vector3();
+const _gp = new THREE.Vector3();
+const _gt = new THREE.Vector3();
+const _gs = new THREE.Vector3();
+const _gc = { line: null, s: 0, t: new THREE.Vector3(), d: 0 };
+const _pv = new THREE.Vector3();
+const _pn = new THREE.Vector3();
+// Hochziehen: Höhe (0 = hängend … 1 = stehend) und Abstand vor der Kante (m, negativ = schon über dem Dach)
+const CLIMB_UP = [[0, 0], [0.26, 0.36], [0.54, 0.74], [0.77, 0.94], [1, 1]];
+const CLIMB_OUT = [[0, 0.39], [0.3, 0.34], [0.55, 0.08], [0.78, -0.28], [1, -0.5]];
 
 const approach = (cur, target, delta) => (cur < target ? Math.min(cur + delta, target) : Math.max(cur - delta, target));
 const wrapAngle = (a) => Math.atan2(Math.sin(a), Math.cos(a));
@@ -46,6 +61,9 @@ function overlaps(p, b, hx, hy) {
 
 // Kontakte als wiederverwendete Objekte: Normale (aus dem Hindernis heraus) + Box
 const CONTACT_POOL = [];
+const ROCK_STEEP = 1.25; // Steigung, ab der Fels nicht mehr begehbar ist (≈ 51°)
+const _rg = new THREE.Vector2();
+
 function contact(list, nx, ny, nz, box) {
   let c = CONTACT_POOL[list.length];
   if (!c) CONTACT_POOL.push((c = { n: new THREE.Vector3(), box: null }));
@@ -62,10 +80,16 @@ export class Player {
     this.prevPos = new THREE.Vector3();
     this.vel = new THREE.Vector3();
     this.vPre = new THREE.Vector3();
-    this.state = 'air'; // 'ground' | 'air' | 'wallrun'
+    this.state = 'air'; // 'ground' | 'air' | 'wallrun' | 'ledge' (hängt an einer Kante) | 'sit' (sitzt auf einer)
     this.groundTimer = 0;
     this.jumpBuffer = 0;
     this.gas = CONFIG.gas.max;
+    this.flowRegen = 1; // Bonus aus dem Flow (flow.js): Gas-Erholung …
+    this.flowBoost = 1; // … und Verbrauch beim Gas-Schub
+    this.grind = null;  // auf einer Grind-Linie: { line, s (Bogenlänge), dir (±1), speed, t }
+    this.grindCooldown = 0;
+    this.fanCooldown = 0; // nach dem Hochschleudern kurz kein neuer Lüfter
+    this.inUpdraft = null; // Lüfter, dessen Aufwind gerade trägt
     this.wall = { n: new THREE.Vector3(), t: new THREE.Vector3(), box: null, time: 0, lost: 0 };
     this.wallCooldown = { box: null, nx: 0, nz: 0, time: 0 };
     this.contacts = [];
@@ -95,6 +119,10 @@ export class Player {
     // Bewegung nach schnellem Aufkommen: { type: 'roll' | 'slide' | 'rise' | 'stumble', t, rope, auto }
     this.landMove = null;
     this.attachedCount = 0;
+    // An der Kante: { type: 'hang' | 'climb' | 'sitDown' | 'sit' | 'standUp' | 'hop', t, dur, n, edge, at, … }
+    this.perch = null;
+    this.perchCooldown = 0;
+    this.idleTime = 0;
   }
 
   reset(p, yaw = 0) {
@@ -112,6 +140,9 @@ export class Player {
     this.dashTimer = 0;
     this.platform = null;
     this.landMove = null;
+    this.perch = null;
+    this.grind = null;
+    this.idleTime = 0;
   }
 
   get feetY() {
@@ -136,6 +167,34 @@ export class Player {
     this.dashTimer -= dt;
     this.dashCooldown -= dt;
     this.shiftHeld = ctl.sprint ? this.shiftHeld + dt : 0;
+    this.perchCooldown -= dt;
+    this.fanCooldown -= dt;
+
+    // an der Kante (hängen, hochziehen, sitzen): eigene Bewegung ohne Physik – greift ein Haken, übernimmt das Seil
+    if (this.perch) {
+      let att = 0;
+      for (const h of hooks) if (h.state === 'attached') att++;
+      this.attachedCount = att;
+      if (att > 0) this.leavePerch();
+      else {
+        this.perchStep(dt, ctl);
+        this.vPre.copy(this.vel);
+        return;
+      }
+    }
+    // auf einer Grind-Linie: eigene Bewegung entlang der Linie – greift ein Haken, übernimmt das Seil
+    this.grindCooldown -= dt;
+    if (this.grind) {
+      let att = 0;
+      for (const h of hooks) if (h.state === 'attached') att++;
+      this.attachedCount = att;
+      if (att > 0) this.leaveGrind(0);
+      else {
+        this.grindStep(dt, ctl);
+        this.vPre.copy(this.vel);
+        return;
+      }
+    }
 
     _fwdH.set(ctl.camFwd.x, 0, ctl.camFwd.z).normalize();
     _wish.set(0, 0, 0).addScaledVector(_fwdH, ctl.move.z).addScaledVector(ctl.camRight, ctl.move.x);
@@ -182,6 +241,22 @@ export class Player {
       }
       if (this.dashing && !this.gliding) gScale = 0.25;
       if (this.jumpBuffer > 0 && this.groundTimer > 0) this.jump();
+      // Windsäule über einem Lüfter: Die sichtbaren Windlinien sind ihr Bereich. Wer mit dem Gleiter hineinfliegt, wird
+      // hochgeschleudert; ohne Gleiter trägt sie nur (bremst den Fall, nach oben schwächer)
+      const CF = CONFIG.fan, fan = this.city.fanNear?.(this.pos.x, this.pos.z, CF.column);
+      if (fan && this.pos.y > fan.y && this.pos.y < fan.y + CF.height) {
+        if (this.gliding) {
+          if (this.inUpdraft !== fan && this.fanCooldown <= 0) {
+            this.fanCooldown = 1;
+            this.events.push({ type: 'fan', x: fan.x, y: fan.y, z: fan.z });
+          }
+          // der Schwung nach vorn bleibt, damit man auf der anderen Seite wieder hinausfliegt; oben klingt der Schub aus
+          _a.x *= 0.15;
+          _a.z *= 0.15;
+          if (v.y < CF.gustSpeed) _a.y += CF.gust * (1 - smooth(0.7, 1, (this.pos.y - fan.y) / CF.height));
+        } else _a.y += CF.updraft * (1 - (this.pos.y - fan.y) / CF.height);
+        this.inUpdraft = fan;
+      } else this.inUpdraft = null;
     }
 
     // Schwerkraft + Luftwiderstand
@@ -205,7 +280,7 @@ export class Player {
 
     if (this.boosting) {
       _a.addScaledVector(ctl.camFwd, G.boostAccel);
-      if (!G.infinite) this.gas -= G.boostCost * dt;
+      if (!G.infinite) this.gas -= G.boostCost * this.flowBoost * dt;
     }
 
     v.addScaledVector(_a, dt);
@@ -247,8 +322,16 @@ export class Player {
       }
     }
 
+    // Grind-Linie auf dem Weg dieses Schritts? Dann aufsetzen statt auf der Brüstung zu landen
+    if (attached === 0 && this.tryGrind(_target)) {
+      this.vPre.copy(this.vel);
+      return;
+    }
     this.sweep(_target);
     v.subVectors(this.pos, this.prevPos).divideScalar(dt);
+    // Auftauchen auf die Wasseroberfläche und eine Stufe hinauf sind Lagekorrekturen, kein Schwung nach oben
+    if (this.state === 'ground' && (this.waterRun || this.landMove?.type === 'surf') && v.y > 0) v.y = 0;
+    if (this.stepped && v.y > 0) v.y = 0;
     this.postStep(dt, ctl);
   }
 
@@ -257,6 +340,110 @@ export class Player {
     out.set(0, 0, 0);
     for (const h of hooks) if (h.state === 'attached') out.add(_n.subVectors(h.anchor, this.pos).normalize());
     return out.lengthSq() > 1e-8 ? out.normalize() : out.set(0, 1, 0);
+  }
+
+  // ---------------------------------------------------------------- Grinden (grind.js, CONFIG.grind)
+  // Aus der Luft auf eine Schiene, Brüstung oder ein Kabel: die Füße müssen dicht über der Linie sein (am Start oder am
+  // Ziel dieses Schritts) und die Bewegung grob entlang der Linie gehen; nicht im steilen Steigflug, nicht am Seil.
+  tryGrind(target) {
+    const GR = CONFIG.grind, net = this.city.grinds, hy = CONFIG.player.halfHeight;
+    if (!net || this.grindCooldown > 0 || this.state !== 'air' || this.vel.y > 4) return false;
+    const sp = this.vel.length();
+    if (sp < GR.minSpeed) return false;
+    let c = null;
+    for (const p of [target, this.pos]) {
+      _gf.set(p.x, p.y - hy, p.z);
+      if ((c = net.capture(_gf, GR.capture, _gc))) break;
+    }
+    if (!c) return false;
+    const along = this.vel.dot(c.t);
+    if (Math.abs(along) < Math.max(GR.minSpeed, 0.5 * sp)) return false;
+    this.grind = { line: c.line, s: c.s, dir: Math.sign(along), speed: Math.abs(along) * GR.keep + GR.boost, t: 0 };
+    this.state = 'grind';
+    this.landMove = null;
+    this.waterRun = false;
+    this.pivot = null;
+    if (this.gliding) this.stopGlide();
+    this.placeOnGrind();
+    this.events.push({ type: 'grind', speed: this.grind.speed });
+    return true;
+  }
+
+  // Füße auf die Linie, Tempo entlang der Tangente, Blick in Fahrtrichtung
+  placeOnGrind() {
+    const G = this.grind;
+    this.city.grinds.at(G.line, G.s, _gp, _gt);
+    this.pos.set(_gp.x, _gp.y + CONFIG.player.halfHeight, _gp.z);
+    this.vel.copy(_gt).multiplyScalar(G.dir * G.speed);
+    if (Math.abs(_gt.x) + Math.abs(_gt.z) > 1e-3) this.facingYaw = this.moveYaw = Math.atan2(-_gt.x * G.dir, -_gt.z * G.dir);
+  }
+
+  // how: 0 = herunterrutschen (zu langsam, Seil), 1 = Absprung (Leertaste, Hindernis), 2 = Ende der Linie (weiterfliegen)
+  leaveGrind(how, ctl = null) {
+    const GR = CONFIG.grind;
+    this.grind = null;
+    this.state = 'air';
+    this.grindCooldown = GR.cooldown;
+    if (how === 1) {
+      this.vel.y = Math.max(this.vel.y, 0) + GR.jumpUp;
+      if (ctl && Math.abs(ctl.move.x) > 0.1) this.vel.addScaledVector(ctl.camRight, ctl.move.x * 4); // seitlich abspringen
+      this.events.push({ type: 'jump' });
+    } else if (how === 2) this.vel.y += 1.5;
+  }
+
+  grindStep(dt, ctl) {
+    const GR = CONFIG.grind, G = this.grind, net = this.city.grinds;
+    G.t += dt;
+    net.at(G.line, G.s, _gp, _gt);
+    // bergab schneller, bergauf langsamer; dazu Reibung und Luftwiderstand
+    G.speed += (-CONFIG.physics.gravity * _gt.y * G.dir - GR.friction - GR.drag * G.speed * G.speed) * dt;
+    if (this.jumpBuffer > 0) {
+      this.jumpBuffer = 0;
+      this.leaveGrind(1, ctl);
+      return;
+    }
+    if (G.speed < GR.exitSpeed) {
+      _gs.set(-_gt.z, 0, _gt.x).normalize();
+      this.vel.addScaledVector(_gs, Math.random() < 0.5 ? -1.5 : 1.5); // seitlich herunter
+      this.leaveGrind(0);
+      return;
+    }
+    const s1 = G.s + G.dir * G.speed * dt;
+    if (!G.line.closed && (s1 < 0 || s1 > G.line.length)) {
+      G.s = Math.min(G.line.length, Math.max(0, s1));
+      this.placeOnGrind();
+      this.leaveGrind(2);
+      return;
+    }
+    G.s = s1;
+    this.placeOnGrind();
+    if (this.grindBlocked()) {
+      this.leaveGrind(1);
+      return;
+    }
+    // Gas lädt wie in der Luft (der normale Schritt wird übersprungen)
+    const GA = CONFIG.gas;
+    this.gas = Math.min(GA.max, this.gas + GA.regen * this.flowRegen * dt);
+  }
+
+  // Hindernis voraus: Haus oder Mast auf Brusthöhe, ein Zug auf der Schiene – dann rechtzeitig abspringen
+  grindBlocked() {
+    const p = this.pos, sp = this.vel.length();
+    if (sp < 0.1) return false;
+    _gs.copy(this.vel).divideScalar(sp);
+    const reach = 0.9 + sp * 0.06;
+    this.city.query(p.x - reach, p.z - reach, p.x + reach, p.z + reach, this.candidates);
+    if (this.city.raycast(p, _gs, reach, false, this.candidates)) return true;
+    _gf.copy(p).addScaledVector(_gs, reach + 0.6);
+    for (const m of this.movers) {
+      if (m.pos.distanceToSquared(p) > ((m.radius ?? 40) + 5) ** 2) continue;
+      _mq.copy(m.quat).invert();
+      _ml.copy(_gf).sub(m.pos).applyQuaternion(_mq);
+      for (const b of m.boxes) {
+        if (_ml.x > b.min.x - 0.6 && _ml.x < b.max.x + 0.6 && _ml.z > b.min.z - 0.6 && _ml.z < b.max.z + 0.6 && _ml.y > b.min.y - 1 && _ml.y < b.max.y + 1) return true;
+      }
+    }
+    return false;
   }
 
   // Kleiner Schwung in Flugrichtung beim Lösen eines gespannten Seils – macht Ketten von Schwüngen flüssiger.
@@ -283,8 +470,15 @@ export class Player {
       return;
     }
 
-    // schneller unterwegs als man laufen kann (z. B. vom Seil über den Boden gezogen): rutschen statt schlittern
-    if (!this.landMove && hs > L.sprintSpeed + 1.5) this.startLandMove('slide', { rope: this.attachedCount > 0, auto: this.attachedCount === 0 });
+    // Wassersprint: mit Shift und Schwung über die Wasseroberfläche – kostet Gas, ohne sinkt man ein
+    const WA = CONFIG.water, G = CONFIG.gas;
+    this.waterRun = !this.landMove && !!ctl.sprint && input > 0.1 && this.groundSpeed > (this.waterRun ? WA.runMin - 1 : WA.runMin) &&
+      (G.infinite || this.gas > 0.5) && this.waterDeep();
+    if (this.waterRun && !G.infinite) this.gas -= WA.runCost * dt;
+
+    // schneller unterwegs als man laufen kann (z. B. vom Seil über den Boden gezogen): rutschen statt schlittern,
+    // auf tiefem Wasser surfen
+    if (!this.landMove && hs > L.sprintSpeed + 1.5) this.startLandMove(this.waterDeep() ? 'surf' : 'slide', { rope: this.attachedCount > 0, auto: this.attachedCount === 0 });
     if (this.landMove) {
       this.landMoveStep(dt, ctl, wish, input, hs);
       this.turnRate = wrapAngle(this.facingYaw - prevFacing) / dt;
@@ -404,6 +598,24 @@ export class Player {
       s = M.k * curveAt(STUMBLE.speed, M.t);
       this.groundSpeed = s;
       if (M.t >= LD.stumbleTime) this.landMove = null;
+    } else if (M.type === 'surf') {
+      // Surfen: mit gehaltener Richtung hält man das Reisetempo, sonst bremst das Wasser; lenkbar wie auf Skiern;
+      // zu langsam (oder am Ufer) → einsinken
+      const WA = CONFIG.water;
+      if (!M.rope || this.attachedCount === 0) {
+        if (held) s = approach(s, Math.max(WA.surfCruise, Math.min(s, WA.surfCruise + 30)), WA.surfHold * dt);
+        else s = Math.max(0, s - (WA.surfFriction + WA.surfDrag * s) * dt);
+      }
+      if (held) {
+        const desired = Math.atan2(-wish.x, -wish.z), diff = wrapAngle(desired - this.moveYaw);
+        if (Math.abs(diff) < 2.2) this.moveYaw = wrapAngle(this.moveYaw + clamp(diff, -WA.surfSteer * dt, WA.surfSteer * dt) * input);
+      }
+      this.groundSpeed = s;
+      if (!this.waterDeep()) this.landMove = null;
+      else if (s < WA.surfExit && !(M.rope && this.attachedCount > 0)) {
+        this.landMove = null;
+        this.events.push({ type: 'sink' });
+      }
     }
     // Körper zeigt in Fahrtrichtung (Slide: Füße voraus)
     this.facingYaw = wrapAngle(this.facingYaw + wrapAngle(this.moveYaw - this.facingYaw) * (1 - Math.exp(-12 * dt)));
@@ -490,7 +702,8 @@ export class Player {
     _up0.normalize();
     _rt.crossVectors(_vh, _up0).normalize();
     g.lift.copy(_up0).multiplyScalar(Math.cos(g.bank)).addScaledVector(_rt, -Math.sin(g.bank));
-    const lift = Math.min(G.maxLift, G.kLift * cl * q);
+    // im steilen Steigflug trägt der Flügel kaum noch – sonst würde der Auftrieb nach hinten drücken und das Tempo auffressen
+    const lift = Math.min(G.maxLift, G.kLift * cl * q) * (1 - 0.85 * smooth(0.35, 0.8, _vh.y));
     acc.addScaledVector(g.lift, lift);
     acc.addScaledVector(_vh, -G.kDrag * cd * q);
     this.turnRate = yawErr;
@@ -605,15 +818,243 @@ export class Player {
     this.events.push({ type: 'wallrun', strength: impact + ip });
   }
 
+  // ------------------------------------------------------------------ Kanten: hängen, hochziehen, sitzen
+  // Kante greifen: im Fallen (oder kurz vor dem Scheitel) an eine Wand, deren Dachkante auf Brust- bis Kopfhöhe liegt –
+  // über der Kante frei, dahinter eine Dachfläche auf Kantenhöhe
+  tryLedge(c, ctl) {
+    const P = CONFIG.player, LG = CONFIG.ledge, b = c.box;
+    if (!b || this.attachedCount > 0 || this.gliding || this.dashing || this.perchCooldown > 0 || this.vel.y > 3) return false;
+    const top = b.maxY, rel = top - this.pos.y;
+    if (rel < LG.grabLow || rel > LG.grabHigh) return false;
+    _n.set(c.n.x, 0, c.n.z).normalize();
+    if (this.vPre.dot(_n) > 0.5) return false; // bewegt sich von der Wand weg
+    _pe.copy(this.pos).addScaledVector(_n, -P.halfWidth);
+    _pe.y = top;
+    _ps.copy(_pe).addScaledVector(_n, -0.5).setY(top + 1.9);
+    const roof = this.city.raycast(_ps, DOWN, 2.3);
+    if (!roof || Math.abs(roof.point.y - top) > 0.15) return false;
+    _ps.copy(_pe).addScaledVector(_n, 0.1).setY(top + 0.15);
+    if (this.city.raycast(_ps, UP, 1.8)) return false; // Überhang: kein Platz zum Hochziehen
+    this.startPerch('hang', { edge: _pe, n: _n, auto: ctl.move.z > 0.5 });
+    return true;
+  }
+
+  // Bank oder Hocker direkt bei der Figur: { edge (Vorderkante der Sitzfläche), n (Blickrichtung) }
+  findSeat() {
+    const P = CONFIG.player, feet = this.pos.y - P.halfHeight;
+    for (const s of this.city.seats) {
+      const dx = this.pos.x - s.x, dz = this.pos.z - s.z;
+      if (dx * dx + dz * dz > (s.half + 1.5) ** 2 || Math.abs(feet - s.floor) > 0.5) continue;
+      const along = dx * -s.nz + dz * s.nx, out = dx * s.nx + dz * s.nz;
+      if (Math.abs(along) > s.half + 0.5 || out < -0.9 || out > 1.3) continue;
+      const u = Math.max(-s.half, Math.min(s.half, along)), f = s.depth / 2;
+      _pe.set(s.x - s.nz * u + s.nx * f, s.y, s.z + s.nx * u + s.nz * f);
+      _n.set(s.nx, 0, s.nz);
+      return { edge: _pe, n: _n, bench: s };
+    }
+    return null;
+  }
+
+  // Dachkante vor der Figur (Blickrichtung) mit mindestens 3 m Tiefe dahinter: { edge (auf Dachhöhe), n (nach außen) }
+  findSitEdge() {
+    const P = CONFIG.player;
+    const feet = this.pos.y - P.halfHeight;
+    _pf.set(-Math.sin(this.facingYaw), 0, -Math.cos(this.facingYaw));
+    const solid = (d) => !!this.city.raycast(_ps.copy(this.pos).addScaledVector(_pf, d).setY(feet + 0.4), DOWN, 0.8);
+    if (!solid(0)) return null;
+    let a = 0, b = -1;
+    for (const d of [0.3, 0.6, 0.9, 1.2]) {
+      if (solid(d)) a = d;
+      else { b = d; break; }
+    }
+    if (b < 0) return null;
+    for (let i = 0; i < 5; i++) {
+      const m = (a + b) / 2;
+      if (solid(m)) a = m;
+      else b = m;
+    }
+    // am Fels fällt die Kante erst nach und nach ab – dort etwas weiter draußen messen
+    const rock = this.city.terrain.rock, away = rock && rock.height(this.pos.x, this.pos.z) > -Infinity ? 2.4 : 0.3;
+    const drop = this.city.raycast(_ps.copy(this.pos).addScaledVector(_pf, b + away).setY(feet + 0.2), DOWN, 60, true);
+    if (drop && drop.dist < 3) return null;
+    // Fassade von außen anpeilen: Normale und genauer Kantenpunkt
+    const wall = this.city.raycast(_ps.copy(this.pos).addScaledVector(_pf, b + 0.45).setY(feet - 0.25), _pq.copy(_pf).negate(), 1.5);
+    if (!wall || Math.abs(wall.normal.y) > 0.88) return null;
+    _n.copy(wall.normal).setY(0).normalize();
+    if (_n.dot(_pf) < 0.5) return null; // schaut nicht hinaus
+    _pe.copy(wall.point).setY(feet);
+    return { edge: _pe, n: _n };
+  }
+
+  startPerch(type, { edge, n, auto = false, bench = null }) {
+    const P = CONFIG.player, LG = CONFIG.ledge;
+    const M = { type, t: 0, dur: 0, n: n.clone(), tan: new THREE.Vector3(-n.z, 0, n.x), edge: edge.clone(), from: this.pos.clone(), auto, moving: 0, phase: 0, bench };
+    if (type === 'hang') {
+      M.at = edge.clone().addScaledVector(n, P.halfWidth + 0.06);
+      M.at.y = edge.y - LG.hangDrop;
+      M.yaw = Math.atan2(n.x, n.z); // Blick zur Wand
+      this.state = 'ledge';
+    } else {
+      M.at = edge.clone().addScaledVector(n, -0.12); // Po knapp hinter der Kante, die Beine baumeln darüber
+      M.at.y = edge.y + P.halfHeight;
+      M.yaw = Math.atan2(-n.x, -n.z); // Blick hinaus
+      M.yaw0 = this.facingYaw;
+      M.dur = LG.sitDownTime;
+      this.state = 'sit';
+    }
+    this.perch = M;
+    this.vel.set(0, 0, 0);
+    this.groundSpeed = 0;
+    this.landMove = null;
+    this.pivot = null;
+    this.stopGlide();
+    this.events.push({ type: type === 'hang' ? 'ledge' : 'sit' });
+  }
+
+  leavePerch(vel = null) {
+    this.perch = null;
+    this.state = 'air';
+    this.vel.set(0, 0, 0);
+    if (vel) this.vel.copy(vel);
+    this.perchCooldown = 0.5;
+    this.idleTime = 0;
+  }
+
+  // Kante auf ganzer Breite? (zum Hangeln) – Wand vor der Figur, Dach auf Kantenhöhe, seitlich frei
+  edgeContinues(M, ds) {
+    _pe.copy(M.edge).addScaledVector(M.tan, ds);
+    const wall = this.city.raycast(_ps.copy(_pe).addScaledVector(M.n, 0.5).setY(M.edge.y - 0.3), _pq.copy(M.n).negate(), 0.9);
+    if (!wall || wall.normal.dot(M.n) < 0.9) return false;
+    const roof = this.city.raycast(_ps.copy(_pe).addScaledVector(M.n, -0.4).setY(M.edge.y + 1.9), DOWN, 2.3);
+    if (!roof || Math.abs(roof.point.y - M.edge.y) > 0.15) return false;
+    _pq.copy(M.tan).multiplyScalar(Math.sign(ds));
+    return !this.city.raycast(this.pos, _pq, Math.abs(ds) + CONFIG.player.halfWidth);
+  }
+
+  perchStep(dt, ctl) {
+    const M = this.perch, P = CONFIG.player, LG = CONFIG.ledge;
+    M.t += dt;
+    const fwd = ctl.move.z, jump = this.jumpBuffer > 0;
+    this.vel.set(0, 0, 0);
+    if (M.type === 'hang') {
+      // weich in die Hängeposition; A/D hangeln, W/Leertaste hochziehen, S loslassen, S + Leertaste abstoßen
+      M.moving = 0;
+      const side = (ctl.camRight.x * M.tan.x + ctl.camRight.z * M.tan.z) * ctl.move.x;
+      if (M.t > 0.16 && Math.abs(side) > 0.2) {
+        const ds = Math.sign(side) * LG.shimmySpeed * dt;
+        if (this.edgeContinues(M, ds)) {
+          M.edge.addScaledVector(M.tan, ds);
+          M.at.addScaledVector(M.tan, ds);
+          M.moving = Math.sign(ds);
+          M.phase = (M.phase + Math.abs(ds) / 0.55) % 1;
+        }
+      }
+      this.pos.lerpVectors(M.from, M.at, smooth(0, 0.16, M.t));
+      if (M.t > 0.12) {
+        if (jump && fwd < -0.3) {
+          this.jumpBuffer = 0;
+          this.leavePerch(_pf.copy(M.n).multiplyScalar(LG.kickOut).setY(LG.kickUp));
+          this.events.push({ type: 'walljump' });
+          return;
+        }
+        if (fwd > 0.5 || jump || M.auto) {
+          this.jumpBuffer = 0;
+          M.type = 'climb';
+          M.t = 0;
+          M.dur = LG.climbTime;
+          this.events.push({ type: 'climb' });
+        } else if (fwd < -0.5 && M.t > 0.25) {
+          this.leavePerch(_pf.copy(M.n).multiplyScalar(1.5));
+          return;
+        }
+      }
+    } else if (M.type === 'climb') {
+      const u = Math.min(1, M.t / M.dur);
+      this.pos.copy(M.edge).addScaledVector(M.n, curveAt(CLIMB_OUT, u));
+      this.pos.y = M.edge.y - LG.hangDrop + (LG.hangDrop + P.halfHeight) * curveAt(CLIMB_UP, u);
+      if (u >= 1) {
+        this.perch = null;
+        this.state = 'ground';
+        this.groundTimer = 0.12;
+        this.perchCooldown = 0.4;
+        this.idleTime = 0;
+        this.groundSpeed = fwd > 0.5 ? 1.5 : 0;
+        return;
+      }
+    } else if (M.type === 'sitDown') {
+      // zur Kante, umdrehen (falls nötig), hinsetzen; früh mit einer Richtungstaste abbrechbar
+      const u = M.t / M.dur;
+      if (u < 0.4 && Math.hypot(ctl.move.x, ctl.move.z) > 0.5) {
+        this.perch = null;
+        this.state = 'ground';
+        this.perchCooldown = 1.5;
+        return;
+      }
+      this.pos.lerpVectors(M.from, M.at, smooth(0, 0.45, u));
+      this.facingYaw = this.moveYaw = M.yaw0 + wrapAngle(M.yaw - M.yaw0) * smooth(0, 0.35, u);
+      if (u >= 1) {
+        M.type = 'sit';
+        M.t = 0;
+      }
+      return;
+    } else if (M.type === 'sit') {
+      this.pos.copy(M.at);
+      if (jump || fwd > 0.5) {
+        this.jumpBuffer = 0;
+        M.type = 'hop';
+        M.t = 0;
+        M.dur = LG.hopTime;
+      } else if (fwd < -0.5 || Math.abs(ctl.move.x) > 0.5) {
+        M.type = 'standUp';
+        M.t = 0;
+        M.dur = LG.standUpTime;
+        // von der Kante zurück aufs Dach, von der Bank nach vorn auf die Beine
+        M.back = M.bench ? M.at.clone().addScaledVector(M.n, 0.8).setY(M.bench.floor + P.halfHeight) : M.at.clone().addScaledVector(M.n, -0.38);
+      }
+    } else if (M.type === 'standUp') {
+      const u = M.t / M.dur;
+      this.pos.lerpVectors(M.at, M.back, smooth(0.25, 0.75, u));
+      if (u >= 1) {
+        this.perch = null;
+        this.state = 'ground';
+        this.groundTimer = 0.12;
+        this.perchCooldown = 1;
+        this.idleTime = 0; // nicht gleich wieder hinsetzen
+        return;
+      }
+    } else if (M.type === 'hop') {
+      if (M.t >= M.dur * 0.6) {
+        // Absprung in Blickrichtung, wenn sie hinaus zeigt – sonst gerade von der Kante weg
+        _pf.set(ctl.camFwd.x, 0, ctl.camFwd.z).normalize();
+        if (_pf.dot(M.n) < 0.3) _pf.copy(M.n);
+        this.pos.addScaledVector(M.n, 0.15);
+        this.leavePerch(_pf.multiplyScalar(LG.hopSpeed).setY(LG.hopUp));
+        this.events.push({ type: 'hop' });
+        return;
+      }
+    }
+    this.facingYaw = this.moveYaw = M.yaw;
+  }
+
   // ------------------------------------------------------------------ Kontakte auswerten
   postStep(dt, ctl) {
     const G = CONFIG.gas;
     // Fahrzeugwechsel: beim Aufsetzen zählt das Tempo relativ zum Fahrzeug, beim Absprung nimmt man es mit
-    const plat = this._landed ?? null;
+    let plat = this._landed ?? null;
     if (plat !== this.platform) {
-      if (this.platform) this.vel.add(this.platform.vel);
-      if (plat) this.vel.sub(plat.vel);
+      if (this.platform) this.vel.add(this.platform.pointVel(this.pos, _pv));
+      if (plat) this.vel.sub(plat.pointVel(this.pos, _pv));
       this.platform = plat;
+    }
+    // Klappbrücke: wer beim schnellen Öffnen auf einer Klappe steht, wird hinausgeschleudert
+    if (plat?.catapult?.ready()) {
+      plat.pointVel(this.pos, _pv);
+      this.vel.copy(_pv).multiplyScalar(1.6).addScaledVector(plat.catapult.normal(_pn), 8);
+      this.platform = plat = this._landed = null;
+      this.contacts.length = 0;
+      this.state = 'air';
+      this.landMove = null;
+      this.events.push({ type: 'catapult', strength: this.vel.length() });
     }
     if (plat) {
       _mq.copy(plat.quat).invert();
@@ -646,16 +1087,37 @@ export class Player {
         this.groundSpeed = Math.hypot(this.vel.x, this.vel.z);
         if (this.groundSpeed > 1) this.moveYaw = this.facingYaw = Math.atan2(-this.vel.x, -this.vel.z);
         this.landMove = null;
-        if (this.attachedCount > 0) {
+        if (this.groundSpeed > CONFIG.water.surfMin && this.waterDeep()) this.startLandMove('surf', { rope: this.attachedCount > 0 });
+        else if (this.attachedCount > 0) {
           if (this.groundSpeed > CONFIG.locomotion.sprintSpeed + 1.5) this.startLandMove('slide', { rope: true });
         } else if (this.groundSpeed > CONFIG.landing.rollSpeed) this.startLandMove('roll');
       }
       this.state = 'ground';
       this.groundTimer = 0.12;
+      // Lüfter auf dem Dach: wer darauf landet oder läuft, fliegt hoch (Schwung zur Seite bleibt)
+      const CF = CONFIG.fan, fan = this.city.fanNear?.(this.pos.x, this.pos.z, CF.radius);
+      if (fan && Math.abs(this.pos.y - CONFIG.player.halfHeight - fan.y) < 0.4 && this.fanCooldown <= 0) {
+        this.vel.y = CF.launch;
+        this.state = 'air';
+        this.landMove = null;
+        this.pivot = null;
+        this.fanCooldown = 0.5;
+        this.events.push({ type: 'fan', x: fan.x, y: fan.y, z: fan.z });
+        return;
+      }
+      // Kantensitzen: ruhig an einer Dachkante stehen und hinausschauen (oder Strg antippen) → hinsetzen
+      const still = this.groundSpeed < 0.15 && !this.landMove && !this.pivot && Math.hypot(ctl.move.x, ctl.move.z) < 0.1 && this.attachedCount === 0;
+      this.idleTime = still ? this.idleTime + dt : 0;
+      if (still && !this.platform && this.perchCooldown <= 0 && (ctl.glideToggle || this.idleTime > CONFIG.ledge.sitDelay)) {
+        const e = this.findSeat() ?? this.findSitEdge();
+        if (e) this.startPerch('sitDown', e);
+        else this.idleTime = CONFIG.ledge.sitDelay - 0.5; // nicht in jedem Schritt neu suchen
+      }
     } else {
       if (this.state === 'ground') {
         this.state = 'air';
         this.landMove = null; // abgehoben (Seil zieht hoch, über eine Kante gerutscht)
+        this.waterRun = false;
       }
       if (this.state === 'air') {
         const hs = Math.hypot(this.vel.x, this.vel.z);
@@ -665,13 +1127,13 @@ export class Player {
       if (this.state === 'wallrun') {
         if (wallKeep) this.wall.lost = 0;
         else if ((this.wall.lost += dt) > 0.08) this.exitWallrun(false);
-      } else if (wallHit) {
+      } else if (wallHit && !this.tryLedge(wallHit, ctl)) {
         this.tryEnterWallrun(wallHit, ctl);
       }
     }
 
     if (!this.reeling && !this.dashing && !this.boosting) {
-      this.gas = Math.min(G.max, this.gas + (this.state === 'ground' ? G.groundRegen : G.regen) * dt);
+      this.gas = Math.min(G.max, this.gas + (this.state === 'ground' ? G.groundRegen : G.regen) * this.flowRegen * dt);
     }
     if (this.gas < 0) this.gas = 0;
   }
@@ -686,6 +1148,7 @@ export class Player {
       this.candidates,
     );
     this.contacts.length = 0;
+    this.stepped = false;
     const startFeet = p.y - hy;
     this.moveAxis(1, target.y - p.y, hy);
     this.moveAxis(0, target.x - p.x, hx);
@@ -693,6 +1156,7 @@ export class Player {
     this.resolveRotated(startFeet);
     this._landed = this.resolveMovers();
     this.depenetrate();
+    this.resolveRock();
     this.groundContact();
   }
 
@@ -702,7 +1166,7 @@ export class Player {
     const P = CONFIG.player, hx = P.halfWidth, hy = P.halfHeight, p = this.pos;
     let landed = null;
     for (const m of this.movers) {
-      if (m.pos.distanceToSquared(p) > 45 * 45) continue;
+      if (m.pos.distanceToSquared(p) > (m.radius ?? 45) ** 2) continue; // Schiffe und Kranausleger sind länger
       _mq.copy(m.quat).invert();
       _ml.copy(p).sub(m.pos).applyQuaternion(_mq);
       _mp.copy(this.prevPos).sub(m.pos).applyQuaternion(_mq);
@@ -771,8 +1235,10 @@ export class Player {
         continue;
       }
       const penUp = b.maxY - (p.y - hy);
-      if (penUp < 0.35 && penUp < Math.min(penX, penZ)) {
-        p.y = b.maxY + hy + EPS; // kleine Stufe: hinaufsteigen
+      // kleine Stufe (Treppe am Pier): am Boden immer hinaufsteigen, in der Luft nur, wenn man schon fast oben ist
+      if (penUp < 0.35 && (this.state === 'ground' || penUp < Math.min(penX, penZ))) {
+        p.y = b.maxY + hy + EPS;
+        this.stepped = true;
         contact(this.contacts, 0, 1, 0, b);
         continue;
       }
@@ -790,12 +1256,59 @@ export class Player {
     }
   }
 
+  // Felsinsel: Was zum Begehen zu steil ist, wirkt wie eine Wand – sonst stellte die Bodenberührung einen sofort oben
+  // auf die Klippe. Der Schritt in den Fels hinein wird gestrichen (die Geschwindigkeit ergibt sich aus der Lage, so
+  // kommt kein Schwung dazu), was dann noch im Fels steckt, rutscht hangabwärts hinaus.
+  resolveRock() {
+    const R = this.city.terrain.rock, p = this.pos, q = this.prevPos, hy = CONFIG.player.halfHeight;
+    this.onSteep = false;
+    if (!R) return;
+    const h = R.height(p.x, p.z);
+    if (h < p.y - hy - 0.3) return; // frei darüber (außerhalb des Felsens ist h = -Infinity)
+    let g = R.gradient(p.x, p.z, _rg), gl = Math.hypot(g.x, g.y);
+    if (gl < ROCK_STEEP) {
+      if (this.state === 'ground') this.stepped = true; // bergauf laufen ist kein Absprung
+      if (h - (p.y - hy) < 0.5) return;
+    }
+    if (gl < 1e-3) return;
+    this.onSteep = true;
+    const nx = -g.x / gl, nz = -g.y / gl, into = (p.x - q.x) * nx + (p.z - q.z) * nz;
+    if (into < 0) {
+      p.x -= nx * into;
+      p.z -= nz * into;
+      contact(this.contacts, nx, 0, nz, null);
+    }
+    if (this.state === 'ground' && this.attachedCount === 0 && p.y > q.y) p.y = q.y; // kein Hinaufrutschen
+    const feet = p.y - hy, h2 = R.height(p.x, p.z);
+    if (h2 > feet + 0.02 && h2 - feet < 1.5) {
+      g = R.gradient(p.x, p.z, _rg);
+      gl = Math.max(1, Math.hypot(g.x, g.y));
+      const d = Math.min((h2 - feet) / gl, 0.12);
+      p.x -= (g.x / gl) * d;
+      p.z -= (g.y / gl) * d;
+    }
+  }
+
+  // tiefes Wasser unter der Figur (Meer, Teich) – dort kann man surfen und über das Wasser sprinten
+  waterDeep() {
+    const T = this.city.terrain, p = this.pos, w = T.waterLevel(p.x, p.z);
+    // nur an der Oberfläche – auf Schiffsdeck oder Brücke über dem Meer surft man nicht
+    return w > T.height(p.x, p.z) + 0.4 && p.y - CONFIG.player.halfHeight < w + 1.2;
+  }
+
   // Boden aus dem Gelände (Strand, Hügel, Teiche); am Boden bleibt man bei kleinen Absätzen kleben.
+  // Beim Surfen und Wassersprint trägt die Wasseroberfläche – man taucht weich auf (statt hochzuspringen).
   groundContact() {
     const hy = CONFIG.player.halfHeight, p = this.pos;
-    const gy = this.city.groundY(p.x, p.z);
+    let gy = this.city.groundY(p.x, p.z);
+    if (this.landMove?.type === 'surf' || this.waterRun) {
+      const w = this.city.terrain.surfaceY(p.x, p.z); // mit Wellen: man reitet sie ab
+      if (w > gy) gy = Math.min(w, p.y - hy + 0.035);
+    }
     const feet = p.y - hy;
-    if (feet < gy || (this.state === 'ground' && feet - gy < 0.3 && p.y - this.prevPos.y <= 0.02)) {
+    // an steilem Fels klebt man nicht, man rutscht ab (resolveRock); nur tief im Fels wird man nach oben gesetzt
+    const sticky = this.onSteep ? feet < gy - 0.4 : feet < gy || (this.state === 'ground' && feet - gy < 0.3 && p.y - this.prevPos.y <= 0.02);
+    if (sticky) {
       if (!this.contacts.some((c) => c.n.y > 0.5)) {
         p.y = gy + hy;
         contact(this.contacts, 0, 1, 0, null);

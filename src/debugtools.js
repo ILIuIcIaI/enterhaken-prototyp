@@ -4,7 +4,7 @@ import * as THREE from 'three';
 export function installDebugTools(game) {
   const sky = () => game.scene.children.find((o) => o.material?.uniforms?.uSunStrength);
   const post = async (name, canvas, type = 'image/png') => {
-    const b = await new Promise((r) => canvas.toBlob(r, type, 0.85));
+    const b = await new Promise((r) => canvas.toBlob(r, type, 0.93));
     await fetch('/__shot?name=' + encodeURIComponent(name), { method: 'POST', body: b });
     return name;
   };
@@ -452,6 +452,114 @@ export function installDebugTools(game) {
     await post(name + '.png', canvas);
     return log;
   };
-  window.dbg = { sim, sheet, thumb, look, post, pose, restore, closeup, motion, sunRoof, stress, soak, clipStrip, landTest, wallTest };
+  // Bild mit HUD und Menü: WebGL-Bild und Tempolinien, darüber das DOM (als SVG-foreignObject gezeichnet)
+  const uiShot = async (name) => post(name + '.png', await uiCanvas());
+  const uiCanvas = async () => {
+    game.post.render();
+    const src = game.renderer.domElement, w = innerWidth, h = innerHeight;
+    const out = document.createElement('canvas');
+    out.width = src.width;
+    out.height = src.height;
+    const g = out.getContext('2d');
+    g.drawImage(src, 0, 0);
+    g.drawImage(document.getElementById('speedlines'), 0, 0, out.width, out.height);
+    // Animationen im Standbild aus – sonst zeigt es ihren Anfangszustand (z. B. unsichtbar beim Einblenden)
+    const css = (await (await fetch('/style.css')).text()).replace(/&/g, '&amp;').replace(/</g, '&lt;') + ' * { animation: none !important; }';
+    for (const i of document.querySelectorAll('input')) i.setAttribute('value', i.value);
+    const xml = ['vignette', 'hud', 'help', 'photoPanel', 'overlay'].map((id) => document.getElementById(id)).filter(Boolean).map((e) => new XMLSerializer().serializeToString(e)).join('');
+    // als <body> mit dessen Klassen, damit z. B. „body.photo #hud“ greift; Hintergrund durchsichtig
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}"><foreignObject width="100%" height="100%"><body xmlns="http://www.w3.org/1999/xhtml" class="${document.body.className}" style="margin:0;position:fixed;inset:0;background:transparent;font-family:'Segoe UI',system-ui,sans-serif;color:#f6f2ff"><style>${css}</style>${xml}</body></foreignObject></svg>`;
+    const img = new Image();
+    img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    await img.decode();
+    g.drawImage(img, 0, 0, out.width, out.height);
+    // Zeichenflächen im HUD (Minimap) kommen im SVG nicht mit – an ihrer Stelle darüberlegen
+    const sc = out.width / w;
+    for (const c of document.querySelectorAll('#hud canvas')) {
+      if (c.offsetParent === null) continue;
+      const r = c.getBoundingClientRect();
+      g.drawImage(c, r.left * sc, r.top * sc, r.width * sc, r.height * sc);
+    }
+    return out;
+  };
+  // Szenenbild (z. B. Vergleich Cel-Look ↔ Hyper-Realistic-Mode): Uhrzeit und Wetter (klar/bewölkt/Regen) setzen,
+  // Licht, Umgebungskarte und Augenadaption einschwingen lassen, aus pos auf target blicken, als PNG speichern.
+  // Liefert auch das Bild (Canvas).
+  const still = new THREE.Vector3();
+  const scene = async (name, { hour = game.env.hour, weather = null, pos, target, fov = 55, save = true } = {}) => {
+    const E = game.env;
+    if (weather) E.setWeather(weather, true);
+    game.paused = false;
+    sim(3);
+    game.paused = true;
+    E.hour = hour;
+    E.target = null;
+    E.apply();
+    game.world.update(game.renderPos, game.camera, game.time, E.lightDir);
+    game.charShadow.update(game.renderPos, E.lightDir);
+    game.realism.update(1 / 60, E.lightDir, E.cloud);
+    if (game.realism.on) game.realism.capture();
+    // Regen um die gesetzte Kamera, Spiegelbild (Straße/Meer) für diese Kamera
+    const view = () => {
+      look(pos, target, fov);
+      game.rain.update(game.time, game.camera, still, still, E.rain, game.realism.rainColor(E.rainColor));
+      const w = game.world.wet;
+      if (w.uReflOn.value || w.uSeaRefl.value) game.reflection.render(game.camera);
+      game.post.render();
+    };
+    for (let i = 0; i < 14; i++) {
+      view();
+      await new Promise((r) => setTimeout(r, 30));
+      game.realism.adapt(0.4);
+      game.applyGraphics();
+    }
+    view();
+    const src = game.renderer.domElement, out = document.createElement('canvas');
+    out.width = src.width;
+    out.height = src.height;
+    out.getContext('2d').drawImage(src, 0, 0);
+    restore();
+    if (save) await post(name, out);
+    return out;
+  };
+  // Bild aus der aktuellen Spielkamera (nach sim)
+  const rigShot = async (name, save = true) => {
+    game.post.render();
+    const src = game.renderer.domElement, out = document.createElement('canvas');
+    out.width = src.width;
+    out.height = src.height;
+    out.getContext('2d').drawImage(src, 0, 0);
+    if (save) await post(name, out);
+    return out;
+  };
+  // Figur an eine Stelle setzen (Haken lösen, Plattform vergessen, Kamera mitnehmen)
+  const place = (x, y, z, { vel = null, yaw = null } = {}) => {
+    const P = game.player;
+    game.paused = false;
+    for (const h of game.hooks) h.state = 'idle';
+    P.platform = null;
+    P.perch = null;
+    P.grind = null;
+    P.landMove = null;
+    P.pos.set(x, y, z);
+    P.vel.set(0, 0, 0);
+    if (vel) P.vel.copy(vel);
+    P.state = 'air';
+    if (yaw !== null) {
+      P.facingYaw = P.moveYaw = yaw;
+      game.rig.yaw = yaw;
+    }
+    game.renderPos.copy(P.pos);
+    game.input.keys.clear();
+  };
+  // Surfen: mit Tempo aufs offene Meer setzen und mit gehaltenem W eine Weile fahren lassen
+  const surf = (speed = 18, frames = 120, th = 2.4) => {
+    const ux = Math.cos(th), uz = Math.sin(th), R = game.city.coastR(ux, uz) + 70, dx = -uz, dz = ux;
+    place(ux * R, -0.8, uz * R, { vel: new THREE.Vector3(dx * speed, -1, dz * speed), yaw: Math.atan2(-dx, -dz) });
+    game.input.keys.add('KeyW');
+    sim(frames);
+    return { state: game.player.state, move: game.player.landMove?.type ?? null, speed: Math.hypot(game.player.vel.x, game.player.vel.z) };
+  };
+  window.dbg = { sim, sheet, thumb, look, post, pose, restore, closeup, motion, sunRoof, stress, soak, clipStrip, landTest, wallTest, uiShot, uiCanvas, scene, rigShot, place, surf };
   window.sim = sim;
 }

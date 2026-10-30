@@ -9,7 +9,7 @@ import { SUN_DIR } from './palette.js';
 // Der Figurenschatten fällt deshalb aus derselben Himmelsrichtung, aber steiler (ELEV): kürzer, gut lesbar,
 // und er liegt nahe unter der Figur (hilft beim Landen).
 const ELEV = (38 * Math.PI) / 180;
-const DIR = new THREE.Vector3(SUN_DIR.x, 0, SUN_DIR.z).normalize().multiplyScalar(Math.cos(ELEV)).setY(Math.sin(ELEV));
+const DIR = new THREE.Vector3();
 export const LAYER = 2;
 
 let patched = false;
@@ -49,8 +49,13 @@ export function createCharacterShadow(scene, camera, { size = 2048, half = 3.4 }
   camera.layers.enable(LAYER);
   return {
     light,
-    // Schattenbox auf die Figur zentrieren
-    update(focus) {
+    // Schattenbox auf die Figur zentrieren. dir: aktuelles Licht (Sonne oder Mond) – gleiche Himmelsrichtung, aber
+    // mindestens ELEV hoch
+    update(focus, dir = SUN_DIR) {
+      const e = Math.max(ELEV, Math.asin(Math.min(1, Math.max(-1, dir.y))));
+      DIR.set(dir.x, 0, dir.z);
+      if (DIR.lengthSq() < 1e-8) DIR.set(1, 0, 0);
+      DIR.normalize().multiplyScalar(Math.cos(e)).setY(Math.sin(e));
       light.target.position.copy(focus);
       light.position.copy(focus).addScaledVector(DIR, 260);
       light.target.updateMatrixWorld();
